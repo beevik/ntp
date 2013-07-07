@@ -1,6 +1,8 @@
 // Package ntp provides a simple mechanism for querying the current time
 // from a remote NTP server.  This package only supports NTP client mode
 // behavior and version 4 of the NTP protocol.  See RFC 5905.
+// Approach inspired by go-nuts post by Michael Hofmann:
+// https://groups.google.com/forum/?fromgroups#!topic/golang-nuts/FlcdMU5fkLQ
 package ntp
 
 import (
@@ -33,7 +35,7 @@ func (t ntpTime) UTC() time.Time {
 }
 
 type msg struct {
-	LiVnMode       byte			// Leap Indicator (2) + Version (3) + Mode (3)
+	LiVnMode       byte // Leap Indicator (2) + Version (3) + Mode (3)
 	Stratum        byte
 	Poll           byte
 	Precision      byte
