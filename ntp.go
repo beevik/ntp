@@ -1,3 +1,7 @@
+// Copyright 2015 Brett Vickers.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 // Package ntp provides a simple mechanism for querying the current time
 // from a remote NTP server.  This package only supports NTP client mode
 // behavior and version 4 of the NTP protocol.  See RFC 5905.
