@@ -15,6 +15,16 @@ import (
 	"time"
 )
 
+// Version defines NTP protocol version
+var Version = V4
+
+// Supported versions of NTP protocol are 2, 3 and 4
+const (
+	V2 byte = 2 + iota
+	V3
+	V4
+)
+
 type mode byte
 
 const (
@@ -79,7 +89,7 @@ func Time(host string) (time.Time, error) {
 
 	m := new(msg)
 	m.SetMode(client)
-	m.SetVersion(4)
+	m.SetVersion(Version)
 
 	err = binary.Write(con, binary.BigEndian, m)
 	if err != nil {
