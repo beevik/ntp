@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	host  = "0.europe.pool.ntp.org"
+	host  = "0.pool.ntp.org"
 	delta = 0.2
 )
 
