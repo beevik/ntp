@@ -16,14 +16,7 @@ import (
 )
 
 // Version defines NTP protocol version
-var Version = V4
-
-// Supported versions of NTP protocol are 2, 3 and 4
-const (
-	V2 byte = 2 + iota
-	V3
-	V4
-)
+var Version byte = 4
 
 type mode byte
 
