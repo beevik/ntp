@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// Version defines NTP protocol version
+var Version byte = 4
+
 type mode byte
 
 const (
@@ -79,7 +82,7 @@ func Time(host string) (time.Time, error) {
 
 	m := new(msg)
 	m.SetMode(client)
-	m.SetVersion(4)
+	m.SetVersion(Version)
 
 	err = binary.Write(con, binary.BigEndian, m)
 	if err != nil {
