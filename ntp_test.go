@@ -6,7 +6,7 @@ import (
 
 const (
 	host  = "0.pool.ntp.org"
-	delta = 0.2
+	delta = 1.0
 )
 
 func TestVersionSelection(t *testing.T) {
@@ -16,15 +16,13 @@ func TestVersionSelection(t *testing.T) {
 	}
 	t.Logf("Got current time from %s %s for NTP version %d", host, timeV4, 4)
 
-	Version = 3
-	timeV3, err := Time(host)
+	timeV3, err := TimeV(host, 3)
 	if err != nil {
 		t.Errorf("NTP V3 request failed: %s", err)
 	}
 	t.Logf("Got current time from %s %s for NTP version %d", host, timeV3, 3)
 
-	Version = 2
-	timeV2, err := Time(host)
+	timeV2, err := TimeV(host, 2)
 	if err != nil {
 		t.Errorf("NTP V3 request failed: %s", err)
 	}

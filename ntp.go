@@ -15,9 +15,6 @@ import (
 	"time"
 )
 
-// Version defines NTP protocol version
-var Version byte = 4
-
 type mode byte
 
 const (
@@ -67,7 +64,11 @@ func (m *msg) SetMode(md mode) {
 
 // Time returns the "receive time" from the remote NTP server
 // specifed as host.  NTP client mode is used.
-func Time(host string) (time.Time, error) {
+func getTime(host string, version byte) (time.Time, error) {
+	if version < 2 || version > 4 {
+		panic("ntp: invalid version number")
+	}
+
 	raddr, err := net.ResolveUDPAddr("udp", host+":123")
 	if err != nil {
 		return time.Now(), err
@@ -82,7 +83,7 @@ func Time(host string) (time.Time, error) {
 
 	m := new(msg)
 	m.SetMode(client)
-	m.SetVersion(Version)
+	m.SetVersion(version)
 
 	err = binary.Write(con, binary.BigEndian, m)
 	if err != nil {
@@ -96,4 +97,17 @@ func Time(host string) (time.Time, error) {
 
 	t := m.ReceiveTime.UTC().Local()
 	return t, nil
+}
+
+// TimeV returns the "receive time" from the remote NTP server
+// specifed as host.  Use the NTP client mode with the requested
+// version number (2, 3, or 4).
+func TimeV(host string, version byte) (time.Time, error) {
+	return getTime(host, version)
+}
+
+// Time returns the "receive time" from the remote NTP server
+// specifed as host.  NTP client mode version 4 is used.
+func Time(host string) (time.Time, error) {
+	return getTime(host, 4)
 }
