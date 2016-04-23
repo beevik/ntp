@@ -24,7 +24,7 @@ func TestVersionSelection(t *testing.T) {
 
 	timeV2, err := TimeV(host, 2)
 	if err != nil {
-		t.Errorf("NTP V3 request failed: %s", err)
+		t.Errorf("NTP V2 request failed: %s", err)
 	}
 	t.Logf("Got current time from %s %s for NTP version %d", host, timeV2, 2)
 
