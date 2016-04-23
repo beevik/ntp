@@ -43,3 +43,16 @@ func TestVersionSelection(t *testing.T) {
 			2, 4, delta)
 	}
 }
+
+func TestStratum(t *testing.T) {
+	for _, version := range []uint8{2, 3, 4} {
+		r, err := Query(host, version)
+		if err != nil {
+			t.Errorf("NTP V%d request failed: %s", version, err)
+		}
+		// pool.ntp.org servers should almost certainly have stratum 10 or less.
+		if r.Stratum < 1 || r.Stratum > 10 {
+			t.Errorf("Invalid stratum from %s: %d", host, r.Stratum)
+		}
+	}
+}
