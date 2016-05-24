@@ -13,7 +13,6 @@ import (
 	"encoding/binary"
 	"net"
 	"time"
-	"fmt"
 )
 
 type mode byte
@@ -110,7 +109,6 @@ func getTime(host string, version byte) (*msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Got message back", m)
 
 	return m, nil
 }
