@@ -47,28 +47,8 @@ func (t ntpTime) UTC() time.Time {
 	return time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(t.nsec()))
 }
 
-func (t ntpTime) nsec() uint64 {
-	return uint64(t.Seconds) * 1e9 + (uint64(t.Fraction) * 1e9 >> 32)
-}
-
-func (a ntpTime) subtract(b ntpTime) ntpTime {
-	var result ntpTime
-	result.Fraction = a.Fraction - b.Fraction
-	result.Seconds = a.Seconds - b.Seconds
-	if result.Fraction > a.Fraction {
-		result.Seconds -= 1
-	}
-	return result
-}
-
-func (r ntpTime) add(a ntpTime) ntpTime {
-	var result ntpTime
-	result.Fraction = r.Fraction + a.Fraction
-	result.Seconds = r.Seconds + a.Seconds
-	if result.Fraction < a.Fraction {
-		result.Seconds += 1
-	}
-	return result
+func (t ntpTime) nsec() int64 {
+	return int64(t.Seconds) * 1e9 + int64(float64(t.Fraction) / frac * 1e9)
 }
 
 func toNtpTime(t time.Time) ntpTime {
@@ -190,7 +170,7 @@ func Time(host string) (time.Time, error) {
 }
 
 // Offset returns the offset in nanoseconds
-func Offset(host string) (uint64, error) {
+func Offset(host string) (int64, error) {
 	m, err := getTime(host, 4)
 	if err != nil {
 		return 0, err
@@ -200,13 +180,11 @@ func Offset(host string) (uint64, error) {
 
 // offset variable names based off the rfc:
 // https://tools.ietf.org/html/rfc2030
-func offset(t1, t2, t3, t4 ntpTime) (uint64, error) {
+func offset(t1, t2, t3, t4 ntpTime) (int64, error) {
 	// https://tools.ietf.org/html/rfc2030 page 12
 	// d = (T4 - T1) - (T2 - T3)
-	// t = ((T2 - T1) + (T3 - T4)) / 2.
-	t21 := t2.subtract(t1)
-	t34 := t3.subtract(t4)
-	total := t21.add(t34)
-	t := total.nsec() / 2
-	return t, nil
+	// t = ((T2 - T1) + (T3 - T4)) / 2
+	i := float64((t2.nsec() - t1.nsec()) + (t3.nsec() - t4.nsec()))
+	t := i / 2.0
+	return int64(t), nil
 }
