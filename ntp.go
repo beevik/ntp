@@ -32,10 +32,12 @@ const (
 	frac float64 = 4294967296.0 // 2^32 as a double
 	jan1900to1970 int64 = 2208988800
         maxStratum uint8 = 16
+	nanoPerSec    uint64  = 1000000000
 )
 
 var (
 	timeout = 5 * time.Second
+	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 type ntpTime struct {
@@ -48,16 +50,16 @@ func (t ntpTime) UTC() time.Time {
 }
 
 func (t ntpTime) nsec() int64 {
-	return int64(t.Seconds) * 1e9 + int64(float64(t.Fraction) / frac * 1e9)
+	return int64(t.Seconds)*1e9 + int64(float64(t.Fraction)/frac*1e9)
 }
 
 func toNtpTime(t time.Time) ntpTime {
+	nsec := uint64(t.UTC().Sub(ntpEpoch))
 	seconds := uint32(t.Unix() + jan1900to1970)
-	fraction := float64(t.Nanosecond()) / 1e9
-	fraction *= frac
+	fraction := nsec % nanoPerSec
 	return ntpTime{
-		Seconds: seconds,
-		Fraction: uint32(fraction),
+		Seconds:  seconds,
+		Fraction: uint32(fraction << 32 / nanoPerSec),
 	}
 }
 
@@ -180,11 +182,11 @@ func Offset(host string) (int64, error) {
 
 // offset variable names based off the rfc:
 // https://tools.ietf.org/html/rfc2030
-func offset(t1, t2, t3, t4 ntpTime) (int64, error) {
+func offset(clientSend, serverReceive, serverTransmit, clientReceive ntpTime) (int64, error) {
 	// https://tools.ietf.org/html/rfc2030 page 12
 	// d = (T4 - T1) - (T2 - T3)
 	// t = ((T2 - T1) + (T3 - T4)) / 2
-	i := float64((t2.nsec() - t1.nsec()) + (t3.nsec() - t4.nsec()))
+	i := float64((serverReceive.nsec() - clientSend.nsec()) + (serverTransmit.nsec() - clientReceive.nsec()))
 	t := i / 2.0
 	return int64(t), nil
 }
