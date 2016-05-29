@@ -30,6 +30,10 @@ const (
 
 const maxStratum uint8 = 16
 
+var (
+	timeout = 5 * time.Second
+)
+
 type ntpTime struct {
 	Seconds  uint32
 	Fraction uint32
@@ -88,7 +92,7 @@ func Query(host string, version uint8) (*Response, error) {
 		return nil, err
 	}
 	defer con.Close()
-	con.SetDeadline(time.Now().Add(5 * time.Second))
+	con.SetDeadline(time.Now().Add(timeout))
 
 	m := new(msg)
 	m.SetMode(client)
