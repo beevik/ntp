@@ -2,57 +2,46 @@ package ntp
 
 import (
 	"testing"
+	"time"
 )
 
 const (
-	host  = "0.pool.ntp.org"
-	delta = 1.0
+	host = "0.pool.ntp.org"
 )
 
-func TestVersionSelection(t *testing.T) {
-	timeV4, err := Time(host)
-	if err != nil {
-		t.Errorf("NTP V4 request failed: %s", err)
-	}
-	t.Logf("Got current time from %s %s for NTP version %d", host, timeV4, 4)
+func TestQuery(t *testing.T) {
+	const delta = 2.0
+	var prevTm time.Time
+	for version := 2; version <= 4; version++ {
+		tm, err := TimeV(host, uint8(version))
+		if err != nil {
+			t.Errorf("[%s] v%d request failed: %s", host, version, err)
+		}
 
-	timeV3, err := TimeV(host, 3)
-	if err != nil {
-		t.Errorf("NTP V3 request failed: %s", err)
-	}
-	t.Logf("Got current time from %s %s for NTP version %d", host, timeV3, 3)
+		t.Logf("[%s] Current time (v%d): %v", host, version, tm)
 
-	timeV2, err := TimeV(host, 2)
-	if err != nil {
-		t.Errorf("NTP V2 request failed: %s", err)
-	}
-	t.Logf("Got current time from %s %s for NTP version %d", host, timeV2, 2)
+		if version > 2 && tm.Sub(prevTm).Seconds() > delta {
+			t.Errorf("[%s] Diff between v%d and v%d > %f seconds",
+				host, version-1, version, delta)
+		}
+		prevTm = tm
 
-	if timeV2.Sub(timeV3).Seconds() > delta {
-		t.Errorf("Difference between NTP version %d and %d time values greaten than %f seconds",
-			2, 3, delta)
-	}
-
-	if timeV3.Sub(timeV4).Seconds() > delta {
-		t.Errorf("Difference between NTP version %d and %d time values greaten than %f seconds",
-			3, 4, delta)
-	}
-
-	if timeV2.Sub(timeV4).Seconds() > delta {
-		t.Errorf("Difference between NTP version %d and %d time values greaten than %f seconds",
-			2, 4, delta)
+		time.Sleep(time.Second) // Delay one second to prevent spam
 	}
 }
 
 func TestStratum(t *testing.T) {
-	for _, version := range []uint8{2, 3, 4} {
-		r, err := Query(host, version)
+	for version := 2; version <= 4; version++ {
+		r, err := Query(host, uint8(version))
 		if err != nil {
-			t.Errorf("NTP V%d request failed: %s", version, err)
+			t.Errorf("[%s] v%d request failed: %s", host, version, err)
 		}
+
 		// pool.ntp.org servers should almost certainly have stratum 10 or less.
 		if r.Stratum < 1 || r.Stratum > 10 {
-			t.Errorf("Invalid stratum from %s: %d", host, r.Stratum)
+			t.Errorf("[%s] Invalid stratum received: %d", host, r.Stratum)
 		}
+
+		time.Sleep(time.Second) // Delay one second to prevent spam
 	}
 }
