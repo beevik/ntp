@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package ntp provides a simple mechanism for querying the current time
-// from a remote NTP server.  This package only supports NTP client mode
-// behavior and version 4 of the NTP protocol.  See RFC 5905.
-// Approach inspired by go-nuts post by Michael Hofmann:
+// Package ntp provides a simple mechanism for querying the current time from
+// a remote NTP server.  This package only supports NTP client mode behavior
+// and version 4 of the NTP protocol.  See RFC 5905. Approach inspired by go-
+// nuts post by Michael Hofmann:
+//
 // https://groups.google.com/forum/?fromgroups#!topic/golang-nuts/FlcdMU5fkLQ
 package ntp
 
@@ -29,14 +30,12 @@ const (
 )
 
 const (
-	frac float64 = 4294967296.0 // 2^32 as a double
-	jan1900to1970 int64 = 2208988800
-        maxStratum uint8 = 16
-	nanoPerSec    uint64  = 1000000000
+	maxStratum = 16
+	nanoPerSec = 1000000000
 )
 
 var (
-	timeout = 5 * time.Second
+	timeout  = 5 * time.Second
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
@@ -45,21 +44,24 @@ type ntpTime struct {
 	Fraction uint32
 }
 
-func (t ntpTime) UTC() time.Time {
-	return time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(t.nsec()))
+func (t ntpTime) Time() time.Time {
+	return ntpEpoch.Add(t.sinceEpoch())
 }
 
-func (t ntpTime) nsec() int64 {
-	return int64(t.Seconds)*1e9 + int64(float64(t.Fraction)/frac*1e9)
+// sinceEpoch converts the ntpTime record t into a duration since the NTP
+// epoch time (Jan 1, 1900).
+func (t ntpTime) sinceEpoch() time.Duration {
+	sec := time.Duration(t.Seconds) * time.Second
+	frac := time.Duration(uint64(t.Fraction) * nanoPerSec >> 32)
+	return sec + frac
 }
 
+// toNtpTime converts the time value t into an ntpTime representation.
 func toNtpTime(t time.Time) ntpTime {
-	nsec := uint64(t.UTC().Sub(ntpEpoch))
-	seconds := uint32(t.Unix() + jan1900to1970)
-	fraction := nsec % nanoPerSec
+	nsec := uint64(t.Sub(ntpEpoch))
 	return ntpTime{
-		Seconds:  seconds,
-		Fraction: uint32(fraction << 32 / nanoPerSec),
+		Seconds:  uint32(nsec / nanoPerSec),
+		Fraction: uint32((nsec % nanoPerSec) << 32 / nanoPerSec),
 	}
 }
 
@@ -71,55 +73,59 @@ type msg struct {
 	Precision      byte
 	RootDelay      uint32
 	RootDispersion uint32
-	ReferenceId    uint32
+	ReferenceID    uint32
 	ReferenceTime  ntpTime
 	OriginTime     ntpTime
 	ReceiveTime    ntpTime
 	TransmitTime   ntpTime
 }
 
-// Response is a reply returned by Query.
-type Response struct {
-	Stratum     uint8
-	ReceiveTime time.Time
+// setVersion sets the NTP protocol version on the message.
+func (m *msg) setVersion(v int) {
+	m.LiVnMode = (m.LiVnMode & 0xc7) | uint8(v)<<3
 }
 
-// SetVersion sets the NTP protocol version on the message.
-func (m *msg) SetVersion(v byte) {
-	m.LiVnMode = (m.LiVnMode & 0xc7) | v<<3
-}
-
-// SetMode sets the NTP protocol mode on the message.
-func (m *msg) SetMode(md mode) {
+// setMode sets the NTP protocol mode on the message.
+func (m *msg) setMode(md mode) {
 	m.LiVnMode = (m.LiVnMode & 0xf8) | byte(md)
 }
 
-// SetTransmitTime sets the NTP protocol Transmit time
-func (m *msg) SetTransmitTime(t time.Time) {
-	m.TransmitTime = toNtpTime(t)
+// A Response contains time data, some of which is returned by the NTP server
+// and some of which is calculated by the client.
+type Response struct {
+	Time        time.Time     // receive time reported by the server
+	RTT         time.Duration // round-trip time between client and server
+	ClockOffset time.Duration // local clock offset relative to server
+	Stratum     uint8         // stratum level of NTP server's clock
 }
 
-// Query returns information from the remote NTP server
-// specifed as host.  NTP client mode is used.
-func Query(host string, version uint8) (*Response, error) {
+// Query returns information from the remote NTP server specifed as host.  NTP
+// client mode is used.
+func Query(host string, version int) (*Response, error) {
 	m, err := getTime(host, version)
+	now := toNtpTime(time.Now())
 	if err != nil {
 		return nil, err
 	}
+
 	r := &Response{
-		m.Stratum,
-		m.ReceiveTime.UTC().Local(),
+		Time:        m.ReceiveTime.Time(),
+		RTT:         rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, now),
+		ClockOffset: offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, now),
+		Stratum:     m.Stratum,
 	}
+
 	// https://tools.ietf.org/html/rfc5905#section-7.3
 	if r.Stratum == 0 {
 		r.Stratum = maxStratum
 	}
+
 	return r, nil
 }
 
-// Time returns the "receive time" from the remote NTP server
-// specifed as host.  NTP client mode is used.
-func getTime(host string, version byte) (*msg, error) {
+// Time returns the "receive time" from the remote NTP server specifed as
+// host.  NTP client mode is used.
+func getTime(host string, version int) (*msg, error) {
 	if version < 2 || version > 4 {
 		panic("ntp: invalid version number")
 	}
@@ -137,9 +143,9 @@ func getTime(host string, version byte) (*msg, error) {
 	con.SetDeadline(time.Now().Add(timeout))
 
 	m := new(msg)
-	m.SetMode(client)
-	m.SetVersion(version)
-	m.SetTransmitTime(time.Now())
+	m.setMode(client)
+	m.setVersion(version)
+	m.TransmitTime = toNtpTime(time.Now())
 
 	err = binary.Write(con, binary.BigEndian, m)
 	if err != nil {
@@ -154,39 +160,47 @@ func getTime(host string, version byte) (*msg, error) {
 	return m, nil
 }
 
-// TimeV returns the "receive time" from the remote NTP server
-// specifed as host.  Use the NTP client mode with the requested
-// version number (2, 3, or 4).
-func TimeV(host string, version byte) (time.Time, error) {
+// TimeV returns the "receive time" from the remote NTP server specifed as
+// host.  Use the NTP client mode with the requested version number (2, 3, or
+// 4).
+func TimeV(host string, version int) (time.Time, error) {
 	m, err := getTime(host, version)
 	if err != nil {
 		return time.Now(), err
 	}
-	return m.ReceiveTime.UTC().Local(), nil
+	return m.ReceiveTime.Time().Local(), nil
 }
 
-// Time returns the "receive time" from the remote NTP server
-// specifed as host.  NTP client mode version 4 is used.
+// Time returns the "receive time" from the remote NTP server specifed as
+// host.  NTP client mode version 4 is used.
 func Time(host string) (time.Time, error) {
 	return TimeV(host, 4)
 }
 
-// Offset returns the offset in nanoseconds
-func Offset(host string) (int64, error) {
-	m, err := getTime(host, 4)
-	if err != nil {
-		return 0, err
-	}
-	return offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, toNtpTime(time.Now()))
+func rtt(t1, t2, t3, t4 ntpTime) time.Duration {
+	// round trip delay time (https://tools.ietf.org/html/rfc5905#section-8)
+	//   T1 = client send time
+	//   T2 = server receive time
+	//   T3 = server reply time
+	//   T4 = client receive time
+	//
+	// RTT d:
+	//   d = (T4-T1) - (T3-T2)
+	a := t4.Time().Sub(t1.Time())
+	b := t3.Time().Sub(t2.Time())
+	return a - b
 }
 
-// offset variable names based off the rfc:
-// https://tools.ietf.org/html/rfc2030
-func offset(clientSend, serverReceive, serverTransmit, clientReceive ntpTime) (int64, error) {
-	// https://tools.ietf.org/html/rfc2030 page 12
-	// d = (T4 - T1) - (T2 - T3)
-	// t = ((T2 - T1) + (T3 - T4)) / 2
-	i := float64((serverReceive.nsec() - clientSend.nsec()) + (serverTransmit.nsec() - clientReceive.nsec()))
-	t := i / 2.0
-	return int64(t), nil
+func offset(t1, t2, t3, t4 ntpTime) time.Duration {
+	// local offset equation (https://tools.ietf.org/html/rfc5905#section-8)
+	//   T1 = client send time
+	//   T2 = server receive time
+	//   T3 = server reply time
+	//   T4 = client receive time
+	//
+	// Local clock offset t:
+	//   t = ((T2-T1) + (T3-T4)) / 2
+	a := t2.Time().Sub(t1.Time())
+	b := t3.Time().Sub(t4.Time())
+	return (a + b) / time.Duration(2)
 }
