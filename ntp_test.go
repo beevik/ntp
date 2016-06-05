@@ -47,9 +47,14 @@ func testQueryVersion(version int, t *testing.T) {
 	}
 
 	t.Logf("[%s]       Time: %v", host, r.Time.Local())
-	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
 	t.Logf("[%s]        RTT: %v", host, r.RTT)
 	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
+	t.Logf("[%s]       Poll: %v", host, r.Poll)
+	t.Logf("[%s]  Precision: %v", host, r.Precision)
+	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
+	t.Logf("[%s]      RefID: 0x%08x", host, r.ReferenceID)
+	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
+	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
 }
 
 func abs(d time.Duration) time.Duration {
@@ -61,42 +66,33 @@ func abs(d time.Duration) time.Duration {
 	}
 }
 
-func TestNtpTimeConversions(t *testing.T) {
-	// Test cases taken from https://www.eecis.udel.edu/~mills/y2k.html#ntp
-	n := ntpTime{Seconds: 3673001991, Fraction: 2436539606}
-	assert.Equal(t, int64(1464013191567301084), n.Time().UnixNano())
-	assert.Equal(t, ntpTime{Seconds: 0, Fraction: 0}, toNtpTime(ntpEpoch))
-	assert.Equal(t, ntpTime{Seconds: 2208988800, Fraction: 0}, toNtpTime(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)))
-	assert.Equal(t, ntpTime{Seconds: 3673001991, Fraction: 2436539602}, toNtpTime(time.Unix(0, 1464013191567301084)))
-	assert.Equal(t, ntpTime{Seconds: 4294944000, Fraction: 0}, toNtpTime(time.Date(2036, 2, 7, 0, 0, 0, 0, time.UTC)))
-}
-
 func TestOffsetCalculation(t *testing.T) {
-	now := uint32(time.Now().Unix())
-	t1 := ntpTime{Seconds: now, Fraction: 0}
-	t2 := ntpTime{Seconds: now + 20, Fraction: 0}
-	t3 := ntpTime{Seconds: now + 21, Fraction: 0}
-	t4 := ntpTime{Seconds: now + 5, Fraction: 0}
+	now := time.Now()
+	t1 := toNtpTime(now)
+	t2 := toNtpTime(now.Add(20 * time.Second))
+	t3 := toNtpTime(now.Add(21 * time.Second))
+	t4 := toNtpTime(now.Add(5 * time.Second))
+
 	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
 	// ((119 - 99) + (121 - 104)) / 2
 	// (20 +  17) / 2
 	// 37 / 2 = 18
 	expectedOffset := 18 * time.Second
 	offset := offset(t1, t2, t3, t4)
-
 	assert.Equal(t, expectedOffset, offset)
 }
 
 func TestOffsetCalculationNegative(t *testing.T) {
-	t1 := ntpTime{Seconds: 101, Fraction: 0}
-	t2 := ntpTime{Seconds: 102, Fraction: 0}
-	t3 := ntpTime{Seconds: 103, Fraction: 0}
-	t4 := ntpTime{Seconds: 105, Fraction: 0}
+	now := time.Now()
+	t1 := toNtpTime(now.Add(101 * time.Second))
+	t2 := toNtpTime(now.Add(102 * time.Second))
+	t3 := toNtpTime(now.Add(103 * time.Second))
+	t4 := toNtpTime(now.Add(105 * time.Second))
+
 	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
 	// ((102 - 101) + (103 - 105)) / 2
 	// (1 + -2) / 2 = -1 / 2
 	expectedOffset := -time.Second / 2
 	offset := offset(t1, t2, t3, t4)
-
 	assert.Equal(t, expectedOffset, offset)
 }
