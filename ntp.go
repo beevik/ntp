@@ -13,6 +13,7 @@ package ntp
 import (
 	"encoding/binary"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -153,7 +154,10 @@ func getTime(host string, version int) (*msg, error) {
 		panic("ntp: invalid version number")
 	}
 
-	raddr, err := net.ResolveUDPAddr("udp", host+":123")
+	if strings.Index(host, ':') < 0 {
+		host += ":123"
+	}
+	raddr, err := net.ResolveUDPAddr("udp", host)
 	if err != nil {
 		return nil, err
 	}
