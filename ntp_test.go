@@ -13,6 +13,14 @@ const (
 	delta = 1.0
 )
 
+func TestTime(t *testing.T) {
+	tm, err := Time(host)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Logf("%v\n", tm)
+}
+
 func TestQuery(t *testing.T) {
 	for version := 2; version <= 4; version++ {
 		testQueryVersion(version, t)
