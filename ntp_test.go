@@ -63,6 +63,7 @@ func testQueryVersion(version int, t *testing.T) {
 	t.Logf("[%s]      RefID: 0x%08x", host, r.ReferenceID)
 	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
 	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
+	t.Logf("[%s]   Leap: %v", host, r.Leap)
 }
 
 func abs(d time.Duration) time.Duration {
