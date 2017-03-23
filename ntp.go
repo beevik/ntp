@@ -114,7 +114,7 @@ type Response struct {
 	ReferenceID    uint32        // server's reference ID
 	RootDelay      time.Duration // server's RTT to the reference clock
 	RootDispersion time.Duration // server's dispersion to the reference clock
-	Leap           uint8         // server's leap second indicator 1 means increase 1 second, etc.
+	Leap           uint8         // server's leap second indicator; see RFC 5905
 }
 
 // Query returns the current time from the remote server host using the
