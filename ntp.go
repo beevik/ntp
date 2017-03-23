@@ -114,6 +114,7 @@ type Response struct {
 	ReferenceID    uint32        // server's reference ID
 	RootDelay      time.Duration // server's RTT to the reference clock
 	RootDispersion time.Duration // server's dispersion to the reference clock
+	Leap           uint8         // server's leap second indicator; see RFC 5905
 }
 
 // Query returns the current time from the remote server host using the
@@ -137,6 +138,7 @@ func Query(host string, version int) (*Response, error) {
 		ReferenceID:    m.ReferenceID,
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
+		Leap:           (m.LiVnMode & 0x3f) >> 6,
 	}
 
 	// https://tools.ietf.org/html/rfc5905#section-7.3
