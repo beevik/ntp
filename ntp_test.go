@@ -98,6 +98,14 @@ func TestShortConvertion(t *testing.T) {
 	assert.Equal(t, 65536 * time.Second - (1000000000 / 512) * time.Nanosecond, ts.Duration()); // last precise value
 }
 
+func TestLongConvertion(t *testing.T) {
+	ts := []ntpTime{0x0, 0xff800000, 0x1ff800000, 0x80000000ff800000, 0xffffffffff800000}
+
+	for _, v := range ts {
+		assert.Equal(t, v, toNtpTime(v.Time()));
+	}
+}
+
 func abs(d time.Duration) time.Duration {
 	switch {
 	case int64(d) < 0:
