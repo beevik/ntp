@@ -66,6 +66,37 @@ func testQueryVersion(version int, t *testing.T) {
 	t.Logf("[%s]       Leap: %v", host, r.Leap)
 }
 
+func TestShortConvertion(t *testing.T) {
+	var ts ntpTimeShort;
+
+	ts = 0x00000000;
+	assert.Equal(t, 0 * time.Nanosecond, ts.Duration());
+
+	ts = 0x00000001;
+	assert.Equal(t, 15258 * time.Nanosecond, ts.Duration()); // well, it's actually 15258.789, but it's good enough
+
+	ts = 0x00008000;
+	assert.Equal(t, 500 * time.Millisecond, ts.Duration()); // precise
+
+	ts = 0x0000c000;
+	assert.Equal(t, 750 * time.Millisecond, ts.Duration()); // precise
+
+	ts = 0x0000ff80;
+	assert.Equal(t, time.Second - (1000000000 / 512) * time.Nanosecond, ts.Duration()); // last precise sub-second value
+
+	ts = 0x00010000;
+	assert.Equal(t, 1000 * time.Millisecond, ts.Duration()); // precise
+
+	ts = 0x00018000;
+	assert.Equal(t, 1500 * time.Millisecond, ts.Duration()); // precise
+
+	ts = 0xffff0000;
+	assert.Equal(t, 65535 * time.Second, ts.Duration()); // precise
+
+	ts = 0xffffff80;
+	assert.Equal(t, 65536 * time.Second - (1000000000 / 512) * time.Nanosecond, ts.Duration()); // last precise value
+}
+
 func abs(d time.Duration) time.Duration {
 	switch {
 	case int64(d) < 0:

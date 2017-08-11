@@ -72,8 +72,9 @@ type ntpTimeShort uint32
 // Duration interprets the fixed-point ntpTimeShort as a number of elapsed
 // seconds and returns the corresponding time.Duration value.
 func (t ntpTimeShort) Duration() time.Duration {
-	sec := (t >> 16) * nanoPerSec
-	frac := (t & 0xffff) * nanoPerSec >> 16
+	t64 := uint64(t)
+	sec := (t64 >> 16) * nanoPerSec
+	frac := (t64 & 0xffff) * nanoPerSec >> 16
 	return time.Duration(sec + frac)
 }
 
