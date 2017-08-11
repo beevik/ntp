@@ -21,10 +21,37 @@ func TestTime(t *testing.T) {
 	t.Logf("%v\n", tm)
 }
 
+func TestTimeTimeout(t *testing.T) {
+	old := timeout
+	timeout = 1 * time.Nanosecond
+	tm, err := Time(host)
+	assert.NotNil(t, tm) // for some non-obvious reason it's time.Now() in case of err
+	assert.NotNil(t, err)
+	timeout = old
+}
+
 func TestQuery(t *testing.T) {
 	for version := 2; version <= 4; version++ {
 		testQueryVersion(version, t)
 	}
+}
+
+func TestQueryTimeout(t *testing.T) {
+	old := timeout
+	timeout = 1 * time.Nanosecond
+	tm, err := Query(host, 4)
+	assert.Nil(t, tm)
+	assert.NotNil(t, err)
+	timeout = old
+}
+
+func TestGetTimeTimeout(t *testing.T) {
+	old := timeout
+	timeout = 1 * time.Nanosecond
+	tm, err := getTime(host, 4)
+	assert.Nil(t, tm)
+	assert.NotNil(t, err)
+	timeout = old
 }
 
 func testQueryVersion(version int, t *testing.T) {
