@@ -31,6 +31,10 @@ const (
 const (
 	maxStratum = 16
 	nanoPerSec = 1000000000
+	leapNoWarning = 0
+	leapAddSecond = 1
+	leapDelSecond = 2
+	leapNotInSync = 3
 )
 
 var (
@@ -139,7 +143,7 @@ func Query(host string, version int) (*Response, error) {
 		ReferenceID:    m.ReferenceID,
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
-		Leap:           (m.LiVnMode & 0x3f) >> 6,
+		Leap:           (m.LiVnMode >> 6) & 0x03,
 	}
 
 	// https://tools.ietf.org/html/rfc5905#section-7.3
