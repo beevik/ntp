@@ -117,6 +117,7 @@ type Response struct {
 	Precision      time.Duration // precision of server's system clock
 	Stratum        uint8         // stratum level of NTP server's clock
 	ReferenceID    uint32        // server's reference ID
+	ReferenceTime  time.Time     // server's time of last clock update
 	RootDelay      time.Duration // server's RTT to the reference clock
 	RootDispersion time.Duration // server's dispersion to the reference clock
 	Leap           uint8         // server's leap second indicator; see RFC 5905
@@ -141,6 +142,7 @@ func Query(host string, version int) (*Response, error) {
 		Precision:      toInterval(m.Precision),
 		Stratum:        m.Stratum,
 		ReferenceID:    m.ReferenceID,
+		ReferenceTime:  m.ReferenceTime.Time(),
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
 		Leap:           (m.LiVnMode >> 6) & 0x03,

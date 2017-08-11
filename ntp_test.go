@@ -54,7 +54,8 @@ func testQueryVersion(version int, t *testing.T) {
 		t.Errorf("[%s] Negative round trip time: %v", host, r.RTT)
 	}
 
-	t.Logf("[%s]       Time: %v", host, r.Time.Local())
+	t.Logf("[%s]       Time: %v", host, r.Time)
+	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime) // it's displayed in UTC as NTP has no timezones
 	t.Logf("[%s]        RTT: %v", host, r.RTT)
 	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
 	t.Logf("[%s]       Poll: %v", host, r.Poll)
