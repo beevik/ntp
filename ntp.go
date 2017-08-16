@@ -29,12 +29,12 @@ const (
 )
 
 const (
-	maxStratum = 16
+	MaxStratum = 16
 	nanoPerSec = 1000000000
-	leapNoWarning = 0
-	leapAddSecond = 1
-	leapDelSecond = 2
-	leapNotInSync = 3
+	LeapNoWarning = 0
+	LeapAddSecond = 1
+	LeapDelSecond = 2
+	LeapNotInSync = 3
 )
 
 var (
@@ -150,7 +150,7 @@ func Query(host string, version int) (*Response, error) {
 
 	// https://tools.ietf.org/html/rfc5905#section-7.3
 	if r.Stratum == 0 {
-		r.Stratum = maxStratum
+		r.Stratum = MaxStratum
 	}
 
 	return r, nil
