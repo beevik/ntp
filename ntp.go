@@ -29,12 +29,22 @@ const (
 )
 
 const (
+	// MaxStratum is the largest possible NTP stratum
 	MaxStratum = 16
-	nanoPerSec = 1000000000
+
+	// LeapNoWarning indicates no impending leap second
 	LeapNoWarning = 0
+
+	// LeapAddSecond indicates the last minute of the day has 61 seconds
 	LeapAddSecond = 1
+
+	// LeapDelSecond indicates the last minute of the day has 59 seconds
 	LeapDelSecond = 2
+
+	// LeapNotInSync indicates an unsynchronized leap second.
 	LeapNotInSync = 3
+
+	nanoPerSec = 1000000000
 )
 
 var (
