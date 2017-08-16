@@ -29,8 +29,12 @@ const (
 )
 
 const (
-	maxStratum = 16
+	MaxStratum = 16
 	nanoPerSec = 1000000000
+	LeapNoWarning = 0
+	LeapAddSecond = 1
+	LeapDelSecond = 2
+	LeapNotInSync = 3
 )
 
 var (
@@ -72,8 +76,9 @@ type ntpTimeShort uint32
 // Duration interprets the fixed-point ntpTimeShort as a number of elapsed
 // seconds and returns the corresponding time.Duration value.
 func (t ntpTimeShort) Duration() time.Duration {
-	sec := (t >> 16) * nanoPerSec
-	frac := (t & 0xffff) * nanoPerSec >> 16
+	t64 := uint64(t)
+	sec := (t64 >> 16) * nanoPerSec
+	frac := (t64 & 0xffff) * nanoPerSec >> 16
 	return time.Duration(sec + frac)
 }
 
@@ -112,6 +117,7 @@ type Response struct {
 	Precision      time.Duration // precision of server's system clock
 	Stratum        uint8         // stratum level of NTP server's clock
 	ReferenceID    uint32        // server's reference ID
+	ReferenceTime  time.Time     // server's time of last clock update
 	RootDelay      time.Duration // server's RTT to the reference clock
 	RootDispersion time.Duration // server's dispersion to the reference clock
 	Leap           uint8         // server's leap second indicator; see RFC 5905
@@ -136,14 +142,15 @@ func Query(host string, version int) (*Response, error) {
 		Precision:      toInterval(m.Precision),
 		Stratum:        m.Stratum,
 		ReferenceID:    m.ReferenceID,
+		ReferenceTime:  m.ReferenceTime.Time(),
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
-		Leap:           (m.LiVnMode & 0x3f) >> 6,
+		Leap:           (m.LiVnMode >> 6) & 0x03,
 	}
 
 	// https://tools.ietf.org/html/rfc5905#section-7.3
 	if r.Stratum == 0 {
-		r.Stratum = maxStratum
+		r.Stratum = MaxStratum
 	}
 
 	return r, nil
