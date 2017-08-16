@@ -28,12 +28,13 @@ const (
 	reservedPrivate
 )
 
-const (
-	// MaxStratum is the largest possible NTP stratum
-	MaxStratum = 16
+// The LeapIndicator is used to warn if a leap second should be inserted
+// or deleted in the last minute of the current month.
+type LeapIndicator uint8
 
+const (
 	// LeapNoWarning indicates no impending leap second
-	LeapNoWarning = 0
+	LeapNoWarning LeapIndicator = 0
 
 	// LeapAddSecond indicates the last minute of the day has 61 seconds
 	LeapAddSecond = 1
@@ -43,6 +44,11 @@ const (
 
 	// LeapNotInSync indicates an unsynchronized leap second.
 	LeapNotInSync = 3
+)
+
+const (
+	// MaxStratum is the largest allowable NTP stratum value
+	MaxStratum = 16
 
 	nanoPerSec = 1000000000
 )
@@ -130,7 +136,7 @@ type Response struct {
 	ReferenceTime  time.Time     // server's time of last clock update
 	RootDelay      time.Duration // server's RTT to the reference clock
 	RootDispersion time.Duration // server's dispersion to the reference clock
-	Leap           uint8         // server's leap second indicator; see RFC 5905
+	Leap           LeapIndicator // server's leap second indicator; see RFC 5905
 }
 
 // Query returns the current time from the remote server host using the
@@ -155,7 +161,7 @@ func Query(host string, version int) (*Response, error) {
 		ReferenceTime:  m.ReferenceTime.Time(),
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
-		Leap:           (m.LiVnMode >> 6) & 0x03,
+		Leap:           LeapIndicator((m.LiVnMode >> 6) & 0x03),
 	}
 
 	// https://tools.ietf.org/html/rfc5905#section-7.3
