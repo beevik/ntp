@@ -21,12 +21,6 @@ func TestTime(t *testing.T) {
 	t.Logf("%v\n", tm)
 }
 
-func TestTimeTimeout(t *testing.T) {
-	tm, err := TimeEx(host, QOption{Timeout: time.Nanosecond})
-	assert.NotNil(t, tm) // for some non-obvious reason it's time.Now() in case of err
-	assert.NotNil(t, err)
-}
-
 func TestQuery(t *testing.T) {
 	for version := 2; version <= 4; version++ {
 		testQueryVersion(version, t)
@@ -34,26 +28,29 @@ func TestQuery(t *testing.T) {
 }
 
 func TestServerPort(t *testing.T) {
-	tm, err := getTime(host, QOption{Port: 9}) // `discard` service
+	tm, err := getTime(host, QueryOptions{Port: 9}) // `discard` service
 	assert.Nil(t, tm)
 	// it may be `read: connection refused`, it may be timeout
 	assert.NotNil(t, err)
 }
 
 func TestTTL(t *testing.T) {
-	tm, err := getTime(host, QOption{IpTTL: 1}) // pool host is unlikely within LAN
+	tm, err := getTime(host, QueryOptions{TTL: 1}) // pool host is unlikely within LAN
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
+	tm, err = getTime(host, QueryOptions{TTL: 255}) // max TTL should reach everything
+	assert.NotNil(t, tm)
+	assert.Nil(t, err)
 }
 
 func TestQueryTimeout(t *testing.T) {
-	tm, err := QueryEx(host, QOption{Version: 4, Timeout: time.Nanosecond})
+	tm, err := QueryWithOptions(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
 func TestGetTimeTimeout(t *testing.T) {
-	tm, err := getTime(host, QOption{Version: 4, Timeout: time.Nanosecond})
+	tm, err := getTime(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
@@ -62,7 +59,7 @@ func testQueryVersion(version int, t *testing.T) {
 	t.Logf("[%s] ----------------------", host)
 	t.Logf("[%s] NTP protocol version %d", host, version)
 
-	r, err := Query(host, version)
+	r, err := QueryWithOptions(host, QueryOptions{Version: version})
 	if err != nil {
 		// Don't treat timeouts like errors, because timeouts are common.
 		if strings.Contains(err.Error(), "i/o timeout") {
