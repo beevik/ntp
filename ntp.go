@@ -128,6 +128,10 @@ func (m *msg) setMode(md mode) {
 	m.LiVnMode = (m.LiVnMode & 0xf8) | uint8(md)
 }
 
+func (m *msg) setLeapIndicator(li LeapIndicator) {
+	m.LiVnMode = (m.LiVnMode & 0x3f) | uint8(li)<<6
+}
+
 // A Response contains time data, some of which is returned by the NTP server
 // and some of which is calculated by the client.
 type Response struct {
@@ -144,22 +148,24 @@ type Response struct {
 	Leap           LeapIndicator // server's leap second indicator; see RFC 5905
 }
 
-type QOption struct {
-	Timeout time.Duration // defaults to defaultTimeout
+// QueryOptions contains the list of configurable options that may be used with
+// the QueryWithOptions function.
+type QueryOptions struct {
+	Timeout time.Duration // defaults to 5 seconds
 	Version int           // NTP protocol version, defaults to 4
 	Port    int           // NTP Server port for UDPAddr.Port, defaults to 123
-	IpTTL   int           // IP TTL to use for outgoing UDP packets
+	TTL     int           // IP TTL to use for outgoing UDP packets, defaults to system default
 }
 
-// Query returns the current time from the remote server host using the
-// requested version of the NTP protocol. It also returns additional
-// information about the exchanged time information. The version may be 2, 3,
-// or 4; although 4 is most typically used.
-func Query(host string, version int) (*Response, error) {
-	return QueryEx(host, QOption{Version: version})
+// Query returns the current time from the remote server host. It also returns
+// additional information about the exchanged time information.
+func Query(host string) (*Response, error) {
+	return QueryWithOptions(host, QueryOptions{})
 }
 
-func QueryEx(host string, opt QOption) (*Response, error) {
+// QueryWithOptions allows to specify NTP query options like timeout or NTP
+// protocol version, see QueryOptions for details.
+func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	m, err := getTime(host, opt)
 	now := toNtpTime(time.Now())
 	if err != nil {
@@ -189,7 +195,7 @@ func QueryEx(host string, opt QOption) (*Response, error) {
 }
 
 // getTime returns the "receive time" from the remote NTP server host.
-func getTime(host string, opt QOption) (*msg, error) {
+func getTime(host string, opt QueryOptions) (*msg, error) {
 	if opt.Version == 0 {
 		opt.Version = defaultNtpVersion
 	}
@@ -217,9 +223,9 @@ func getTime(host string, opt QOption) (*msg, error) {
 	}
 	defer con.Close()
 
-	if opt.IpTTL != 0 {
+	if opt.TTL != 0 {
 		ipcon := ipv4.NewConn(con)
-		err = ipcon.SetTTL(opt.IpTTL)
+		err = ipcon.SetTTL(opt.TTL)
 		if err != nil {
 			return nil, err
 		}
@@ -230,6 +236,7 @@ func getTime(host string, opt QOption) (*msg, error) {
 	m := new(msg)
 	m.setMode(client)
 	m.setVersion(opt.Version)
+	m.setLeapIndicator(LeapNotInSync)
 	xmt := toNtpTime(time.Now())
 	m.TransmitTime = xmt
 
@@ -251,6 +258,9 @@ func getTime(host string, opt QOption) (*msg, error) {
 	// crypto/rand takes 64 bits of entropy for every outgoing packet and
 	// CSPRNG from crypto/rand/rand_unix is not available: see
 	// https://github.com/golang/go/issues/13820
+	// A packet is bogus if the origin timestamp t1 in the packet does not
+	// match the xmt state variable T1.
+	// -- https://tools.ietf.org/html/rfc5905#section-8
 	if m.OriginTime != xmt {
 		return nil, errors.New("response OriginTime != query TransmitTime") // spoofed packet?
 	}
@@ -262,11 +272,7 @@ func getTime(host string, opt QOption) (*msg, error) {
 // requested version of the NTP protocol. The version may be 2, 3, or 4;
 // although 4 is most typically used.
 func TimeV(host string, version int) (time.Time, error) {
-	return TimeEx(host, QOption{Version: version})
-}
-
-func TimeEx(host string, opt QOption) (time.Time, error) {
-	m, err := getTime(host, opt)
+	m, err := getTime(host, QueryOptions{Version: version})
 	if err != nil {
 		return time.Now(), err
 	}
@@ -276,7 +282,7 @@ func TimeEx(host string, opt QOption) (time.Time, error) {
 // Time returns the current time from the remote server host using version 4
 // of the NTP protocol.
 func Time(host string) (time.Time, error) {
-	return TimeEx(host, QOption{})
+	return TimeV(host, defaultNtpVersion)
 }
 
 func rtt(t1, t2, t3, t4 ntpTime) time.Duration {
