@@ -21,6 +21,15 @@ func TestTime(t *testing.T) {
 	t.Logf("%v\n", tm)
 }
 
+func TestTimeFailure(t *testing.T) {
+	local, err := Time("169.254.122.229") // random link-local IPv4 addr that unlikely has ntpd listening at :)
+	assert.NotNil(t, err)
+	remote, err := Time(host)
+	assert.Nil(t, err)
+	diff_minutes := remote.Sub(local).Minutes()
+	assert.True(t, -15 <= diff_minutes && diff_minutes <= 15) // no TZ errors
+}
+
 func TestQuery(t *testing.T) {
 	for version := 2; version <= 4; version++ {
 		testQueryVersion(version, t)
@@ -53,6 +62,14 @@ func TestGetTimeTimeout(t *testing.T) {
 	tm, err := getTime(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
+}
+
+func TestTimeOrdering(t *testing.T) {
+	tm, err := getTime(host, QueryOptions{})
+	now := toNtpTime(time.Now())
+	assert.Nil(t, err)
+	assert.True(t, tm.OriginTime <= now)              // local clock tick forward
+	assert.True(t, tm.ReceiveTime <= tm.TransmitTime) // server clock tick forward
 }
 
 func testQueryVersion(version int, t *testing.T) {
