@@ -12,9 +12,10 @@ package ntp
 import (
 	"encoding/binary"
 	"errors"
-	"golang.org/x/net/ipv4"
 	"net"
 	"time"
+
+	"golang.org/x/net/ipv4"
 )
 
 type mode uint8
@@ -128,6 +129,7 @@ func (m *msg) setMode(md mode) {
 	m.LiVnMode = (m.LiVnMode & 0xf8) | uint8(md)
 }
 
+// setLeapIndicator modifies the leap indicator on the message.
 func (m *msg) setLeapIndicator(li LeapIndicator) {
 	m.LiVnMode = (m.LiVnMode & 0x3f) | uint8(li)<<6
 }
@@ -163,8 +165,9 @@ func Query(host string) (*Response, error) {
 	return QueryWithOptions(host, QueryOptions{})
 }
 
-// QueryWithOptions allows to specify NTP query options like timeout or NTP
-// protocol version, see QueryOptions for details.
+// QueryWithOptions returns the current time from the remote server host.
+// It also returns additional information about the exchanged time
+// information. It allows the specification of additional query options.
 func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	m, err := getTime(host, opt)
 	now := toNtpTime(time.Now())
