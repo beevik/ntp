@@ -26,8 +26,8 @@ func TestTimeFailure(t *testing.T) {
 	assert.NotNil(t, err)
 	remote, err := Time(host)
 	assert.Nil(t, err)
-	diff_minutes := remote.Sub(local).Minutes()
-	assert.True(t, -15 <= diff_minutes && diff_minutes <= 15) // no TZ errors
+	diffMinutes := remote.Sub(local).Minutes()
+	assert.True(t, -15 <= diffMinutes && diffMinutes <= 15) // no TZ errors
 }
 
 func TestQuery(t *testing.T) {
