@@ -9,16 +9,18 @@ import (
 )
 
 const (
-	host  = "0.pool.ntp.org"
-	delta = 1.0
+	host = "0.beevik-ntp.pool.ntp.org"
 )
 
 func TestTime(t *testing.T) {
 	tm, err := Time(host)
+	now := time.Now()
 	if err != nil {
 		t.Error(err)
 	}
-	t.Logf("%v\n", tm)
+	t.Logf("Local Time %v\n", now)
+	t.Logf("~True Time %v\n", tm)
+	t.Logf("Offset %v\n", tm.Sub(now))
 }
 
 func TestTimeFailure(t *testing.T) {
@@ -26,8 +28,8 @@ func TestTimeFailure(t *testing.T) {
 	assert.NotNil(t, err)
 	remote, err := Time(host)
 	assert.Nil(t, err)
-	diff_minutes := remote.Sub(local).Minutes()
-	assert.True(t, -15 <= diff_minutes && diff_minutes <= 15) // no TZ errors
+	diffMinutes := remote.Sub(local).Minutes()
+	assert.True(t, -15 <= diffMinutes && diffMinutes <= 15) // no TZ errors
 }
 
 func TestQuery(t *testing.T) {
@@ -36,18 +38,107 @@ func TestQuery(t *testing.T) {
 	}
 }
 
+func TestValidate(t *testing.T) {
+	var m msg
+	var r *Response
+	r = parseTime(&m, 0)
+	assert.False(t, r.Validate())
+	m.Stratum = 1
+	m.ReferenceID = 0x58585858 // `XXXX`
+	m.ReferenceTime = 1 << 32
+
+	m.OriginTime = 1 << 32
+	m.ReceiveTime = 1 << 32
+	m.TransmitTime = 1 << 32
+	r = parseTime(&m, 1<<32)
+	assert.True(t, r.Validate())
+
+	m.ReferenceTime = 2 << 32 // negative freshness
+	r = parseTime(&m, 1<<32)
+	assert.False(t, r.Validate())
+
+	m.OriginTime = 2 * 86400 << 32
+	m.ReceiveTime = 2 * 86400 << 32
+	m.TransmitTime = 2 * 86400 << 32
+	r = parseTime(&m, 2*86400<<32) // 48h freshness
+	assert.False(t, r.Validate())
+
+	m.ReferenceTime = 1 * 86400 << 32 // 24h freshness
+	r = parseTime(&m, 2*86400<<32)
+	assert.True(t, r.Validate())
+
+	m.RootDelay = 16 << 16
+	m.ReferenceTime = 1 << 32
+	m.OriginTime = 20 << 32
+	m.ReceiveTime = 10 << 32
+	m.TransmitTime = 15 << 32
+	r = parseTime(&m, 22<<32)
+	assert.NotNil(t, r)
+	assert.True(t, r.Validate()) // despite negative RTT!
+	assert.Equal(t, r.RTT, -3*time.Second)
+	assert.Equal(t, r.rootDistance(), 8*time.Second)        // does not account negative RTT
+	assert.Equal(t, r.causalityViolation(), 10*time.Second) // OriginTime / ReceiveTime
+}
+
+func TestCausality(t *testing.T) {
+	var m msg
+	var r *Response
+
+	m.Stratum = 1
+	m.ReferenceID = 0x58585858 // `XXXX`
+	m.ReferenceTime = 1 << 32
+
+	m.OriginTime = 1 << 32
+	m.ReceiveTime = 2 << 32
+	m.TransmitTime = 3 << 32
+	r = parseTime(&m, 4<<32)
+	assert.True(t, r.Validate())
+	assert.Equal(t, r.causalityViolation(), time.Duration(0))
+
+	var t1, t2, t3, t4 int64
+	for t1 = 1; t1 <= 10; t1++ {
+		for t2 = 1; t2 <= 10; t2++ {
+			for t3 = 1; t3 <= 10; t3++ {
+				for t4 = 1; t4 <= 10; t4++ {
+					m.OriginTime = ntpTime(t1 << 32)
+					m.ReceiveTime = ntpTime(t2 << 32)
+					m.TransmitTime = ntpTime(t3 << 32)
+					r = parseTime(&m, ntpTime(t4<<32))
+					if t1 <= t4 && t2 <= t3 { // anything else is invalid getTime() response
+						assert.True(t, r.Validate()) // NB: negative RTT is still possible
+						var d12, d34 int64
+						if t1 >= t2 {
+							d12 = t1 - t2
+						}
+						if t3 >= t4 {
+							d34 = t3 - t4
+						}
+						var caserr int64
+						if d12 > d34 {
+							caserr = d12
+						} else {
+							caserr = d34
+						}
+						assert.Equal(t, r.causalityViolation(), time.Duration(caserr)*time.Second)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestServerPort(t *testing.T) {
-	tm, err := getTime(host, QueryOptions{Port: 9}) // `discard` service
+	tm, _, err := getTime(host, QueryOptions{Port: 9}) // `discard` service
 	assert.Nil(t, tm)
 	// it may be `read: connection refused`, it may be timeout
 	assert.NotNil(t, err)
 }
 
 func TestTTL(t *testing.T) {
-	tm, err := getTime(host, QueryOptions{TTL: 1}) // pool host is unlikely within LAN
+	tm, _, err := getTime(host, QueryOptions{TTL: 1}) // pool host is unlikely within LAN
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
-	tm, err = getTime(host, QueryOptions{TTL: 255}) // max TTL should reach everything
+	tm, _, err = getTime(host, QueryOptions{TTL: 255}) // max TTL should reach everything
 	assert.NotNil(t, tm)
 	assert.Nil(t, err)
 }
@@ -59,16 +150,15 @@ func TestQueryTimeout(t *testing.T) {
 }
 
 func TestGetTimeTimeout(t *testing.T) {
-	tm, err := getTime(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
+	tm, _, err := getTime(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
 func TestTimeOrdering(t *testing.T) {
-	tm, err := getTime(host, QueryOptions{})
-	now := toNtpTime(time.Now())
+	tm, DestinationTime, err := getTime(host, QueryOptions{})
 	assert.Nil(t, err)
-	assert.True(t, tm.OriginTime <= now)              // local clock tick forward
+	assert.True(t, tm.OriginTime <= DestinationTime)  // local clock tick forward
 	assert.True(t, tm.ReceiveTime <= tm.TransmitTime) // server clock tick forward
 }
 
@@ -99,17 +189,22 @@ func testQueryVersion(version int, t *testing.T) {
 		t.Errorf("[%s] Negative round trip time: %v", host, r.RTT)
 	}
 
-	t.Logf("[%s]       Time: %v", host, r.Time)
+	t.Logf("[%s] Local Time: %v", host, time.Now())
+	t.Logf("[%s]   xmt Time: %v", host, r.Time)
 	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime) // it's displayed in UTC as NTP has no timezones
 	t.Logf("[%s]        RTT: %v", host, r.RTT)
 	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
+	t.Logf("[%s] !Causality: %v", host, r.causalityViolation())
 	t.Logf("[%s]       Poll: %v", host, r.Poll)
 	t.Logf("[%s]  Precision: %v", host, r.Precision)
 	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
 	t.Logf("[%s]      RefID: 0x%08x", host, r.ReferenceID)
 	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
 	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
+	t.Logf("[%s]   RootDist: %v", host, r.rootDistance())
 	t.Logf("[%s]       Leap: %v", host, r.Leap)
+
+	assert.True(t, r.Validate())
 }
 
 func TestShortConversion(t *testing.T) {
