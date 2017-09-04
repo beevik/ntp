@@ -306,7 +306,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		opt.Timeout = defaultTimeout
 	}
 
-	raddr, err := net.ResolveUDPAddr("udp", host+":123")
+	raddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, "123"))
 	if err != nil {
 		return nil, 0, err
 	}
