@@ -145,10 +145,11 @@ func (m *msg) getLeapIndicator() LeapIndicator {
 // QueryOptions contains the list of configurable options that may be used with
 // the QueryWithOptions function.
 type QueryOptions struct {
-	Timeout time.Duration // defaults to 5 seconds
-	Version int           // NTP protocol version, defaults to 4
-	Port    int           // NTP Server port for UDPAddr.Port, defaults to 123
-	TTL     int           // IP TTL to use for outgoing UDP packets, defaults to system default
+	Timeout      time.Duration // defaults to 5 seconds
+	Version      int           // NTP protocol version, defaults to 4
+	LocalAddress string        // IP to use for the client address
+	Port         int           // NTP Server port for UDPAddr.Port, defaults to 123
+	TTL          int           // IP TTL to use for outgoing UDP packets, defaults to system default
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -311,11 +312,20 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		return nil, 0, err
 	}
 
+	var laddr *net.UDPAddr
+
+	if len(opt.LocalAddress) > 0 {
+		laddr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(opt.LocalAddress, "0"))
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
 	if opt.Port != 0 {
 		raddr.Port = opt.Port
 	}
 
-	con, err := net.DialUDP("udp", nil, raddr)
+	con, err := net.DialUDP("udp", laddr, raddr)
 	if err != nil {
 		return nil, 0, err
 	}
