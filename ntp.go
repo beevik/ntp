@@ -290,11 +290,6 @@ func parseTime(m *msg, dst ntpTime) *Response {
 	r.RootDistance = r.rootDistance()
 	r.CausalityViolation = r.causalityViolation()
 
-	// https://tools.ietf.org/html/rfc5905#section-7.3
-	if r.Stratum == 0 {
-		r.Stratum = MaxStratum
-	}
-
 	return r
 }
 
