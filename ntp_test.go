@@ -26,16 +26,16 @@ func TestTime(t *testing.T) {
 func TestTimeFailure(t *testing.T) {
 	local, err := Time("169.254.122.229") // random link-local IPv4 addr that unlikely has ntpd listening at :)
 	assert.NotNil(t, err)
+
 	remote, err := Time(host)
 	assert.Nil(t, err)
+
 	diffMinutes := remote.Sub(local).Minutes()
 	assert.True(t, -15 <= diffMinutes && diffMinutes <= 15) // no TZ errors
 }
 
 func TestQuery(t *testing.T) {
-	for version := 2; version <= 4; version++ {
-		testQueryVersion(version, t)
-	}
+	testQueryVersion(4, t)
 }
 
 func TestValidate(t *testing.T) {
@@ -138,6 +138,7 @@ func TestTTL(t *testing.T) {
 	tm, _, err := getTime(host, QueryOptions{TTL: 1}) // pool host is unlikely within LAN
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
+
 	tm, _, err = getTime(host, QueryOptions{TTL: 255}) // max TTL should reach everything
 	assert.NotNil(t, tm)
 	assert.Nil(t, err)

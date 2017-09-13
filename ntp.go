@@ -62,7 +62,7 @@ const (
 )
 
 var (
-	defaultTimeout = 5 * time.Second
+	defaultTimeout = 15 * time.Second
 
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
 )
