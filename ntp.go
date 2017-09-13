@@ -202,8 +202,7 @@ func (r *Response) Validate() bool {
 	// but it may be local clock issue.
 	// E.g. T1/T2/T3/T4 = 0/10/20/1 leads to RTT = -9s.
 
-	return r.Leap != LeapNotInSync && // RFC5905, packet()
-		0 < r.Stratum && r.Stratum < MaxStratum && // RFC5905, packet()
+	return 0 < r.Stratum && r.Stratum < MaxStratum && // RFC5905, packet()
 		lambda < maxDispersion*time.Second && // RFC5905, packet()
 		!r.Time.Before(r.ReferenceTime) && // RFC5905, packet(), reftime <= xmt ~~ !(xmt < reftime)
 		freshness <= (1<<maxPoll)*time.Second && // ntpdate uses 24h as a heuristics instead of ~36h derived from MAXPOLL
