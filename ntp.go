@@ -62,7 +62,7 @@ const (
 )
 
 var (
-	defaultTimeout = 15 * time.Second
+	defaultTimeout = 5 * time.Second
 
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
 )
@@ -168,7 +168,7 @@ type Response struct {
 	Leap           LeapIndicator // server's leap second indicator; see RFC 5905
 
 	// RootDistance is the single-packet estimate of the root synchronization
-	// distance. Some SNTP clients limit-check this value before using the
+	// distance. Some NTP clients limit-check this value before using the
 	// response. For example, systemd-timesyncd uses 5.0s as an upper bound. See
 	// https://tools.ietf.org/html/rfc5905#appendix-A.5.5.2
 	RootDistance time.Duration
@@ -195,7 +195,7 @@ func (r *Response) Validate() error {
 		return errors.New("server clock not fresh")
 	}
 
-	// Calculate the peer synchronization lambda:
+	// Calculate the peer synchronization distance, lambda:
 	//  	lambda := RootDelay/2 + RootDispersion
 	// If this value exceeds MAXDISP (16s), then the time is not suitable for
 	// synchronization purposes.
@@ -235,7 +235,7 @@ func (r *Response) rootDistance() time.Duration {
 }
 
 func (r *Response) causalityViolation() time.Duration {
-	// SNTP query has four timestamps for consecutive events: T1, T2, T3
+	// NTP query has four timestamps for consecutive events: T1, T2, T3
 	// and T4. T1 and T4 use local clock, T2 and T3 use NTP clock.
 	// RTT    = (T4 - T1) - (T3 - T2)     =   T4 - T3 + T2 - T1
 	// Offset = (T2 + T3)/2 - (T4 + T1)/2 = (-T4 + T3 + T2 - T1) / 2
@@ -272,8 +272,8 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	return parseTime(m, now), nil
 }
 
-// parseTime parses SNTP packet paired with the packet arrival time (dst) and
-// returns Response having SNTP packet data converted to go types.
+// parseTime parses NTP packet paired with the packet arrival time (dst) and
+// returns Response having NTP packet data converted to go types.
 func parseTime(m *msg, dst ntpTime) *Response {
 	r := &Response{
 		Time:           m.TransmitTime.Time(),
@@ -296,7 +296,7 @@ func parseTime(m *msg, dst ntpTime) *Response {
 	return r
 }
 
-// getTime returns SNTP packet & DestinationTime timestamp.
+// getTime returns NTP packet & DestinationTime timestamp.
 func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if opt.Version == 0 {
 		opt.Version = defaultNtpVersion
@@ -405,7 +405,7 @@ func TimeV(host string, version int) (time.Time, error) {
 	if err != nil {
 		return time.Now(), err
 	}
-	// An SNTP client implementing the on-wire protocol has a single server
+	// An NTP client implementing the on-wire protocol has a single server
 	// and no dependent clients.  It can operate with any subset of the NTP
 	// on-wire protocol, the simplest approach using only the transmit
 	// timestamp of the server packet and ignoring all other fields.

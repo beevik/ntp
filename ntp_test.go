@@ -12,16 +12,39 @@ const (
 	host = "0.beevik-ntp.pool.ntp.org"
 )
 
+func isNil(t *testing.T, err error) bool {
+	switch {
+	case err == nil:
+		return true
+	case strings.Contains(err.Error(), "timeout"):
+		t.Logf("[%s] Query timeout: %s", host, err)
+		return false
+	default:
+		t.Errorf("[%s] Query failed: %s", host, err)
+		return false
+	}
+}
+
+func assertValid(t *testing.T, r *Response) {
+	err := r.Validate()
+	if err != nil {
+		t.Errorf("[%s] Query invalid: %s\n", host, err)
+	}
+}
+
+func assertInvalid(t *testing.T, r *Response) {
+	err := r.Validate()
+	assert.NotNil(t, err)
+}
+
 func TestTime(t *testing.T) {
 	tm, err := Time(host)
 	now := time.Now()
-	if err != nil {
-		t.Error(err)
+	if isNil(t, err) {
+		t.Logf("Local Time %v\n", now)
+		t.Logf("~True Time %v\n", tm)
+		t.Logf("Offset %v\n", tm.Sub(now))
 	}
-
-	t.Logf("Local Time %v\n", now)
-	t.Logf("~True Time %v\n", tm)
-	t.Logf("Offset %v\n", tm.Sub(now))
 }
 
 func TestTimeFailure(t *testing.T) {
@@ -40,13 +63,7 @@ func TestQuery(t *testing.T) {
 	t.Logf("[%s] NTP protocol version %d", host, 4)
 
 	r, err := QueryWithOptions(host, QueryOptions{Version: 4})
-	if err != nil {
-		// Don't treat timeouts like errors, because timeouts are common.
-		if strings.Contains(err.Error(), "i/o timeout") {
-			t.Logf("[%s] Query timeout: %s", host, err)
-		} else {
-			t.Errorf("[%s] Query failed: %s", host, err)
-		}
+	if !isNil(t, err) {
 		return
 	}
 
@@ -54,7 +71,7 @@ func TestQuery(t *testing.T) {
 		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
 	}
 
-	if abs(r.ClockOffset) > time.Second {
+	if abs(r.ClockOffset) > 10*time.Second {
 		t.Errorf("[%s] Large clock offset: %v", host, r.ClockOffset)
 	}
 
@@ -78,19 +95,6 @@ func TestQuery(t *testing.T) {
 	t.Logf("[%s]       Leap: %v", host, r.Leap)
 
 	assertValid(t, r)
-}
-
-func assertInvalid(t *testing.T, r *Response) {
-	err := r.Validate()
-	assert.NotNil(t, err)
-}
-
-func assertValid(t *testing.T, r *Response) {
-	err := r.Validate()
-	if err != nil {
-		t.Logf("Invalid response. %v", err)
-	}
-	assert.Nil(t, err)
 }
 
 func TestValidate(t *testing.T) {
@@ -183,18 +187,20 @@ func TestCausality(t *testing.T) {
 func TestServerPort(t *testing.T) {
 	tm, _, err := getTime(host, QueryOptions{Port: 9}) // `discard` service
 	assert.Nil(t, tm)
-	// it may be `read: connection refused`, it may be timeout
 	assert.NotNil(t, err)
 }
 
 func TestTTL(t *testing.T) {
-	tm, _, err := getTime(host, QueryOptions{TTL: 1}) // pool host is unlikely within LAN
+	// TTL should cause a timeout here:
+	tm, _, err := getTime(host, QueryOptions{TTL: 1})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 
-	tm, _, err = getTime(host, QueryOptions{TTL: 255}) // max TTL should reach everything
-	assert.NotNil(t, tm)
-	assert.Nil(t, err)
+	// TTL should be large enough not to fail:
+	tm, _, err = getTime(host, QueryOptions{TTL: 255})
+	if isNil(t, err) {
+		assert.NotNil(t, tm)
+	}
 }
 
 func TestQueryTimeout(t *testing.T) {
@@ -211,9 +217,10 @@ func TestGetTimeTimeout(t *testing.T) {
 
 func TestTimeOrdering(t *testing.T) {
 	tm, DestinationTime, err := getTime(host, QueryOptions{})
-	assert.Nil(t, err)
-	assert.True(t, tm.OriginTime <= DestinationTime)  // local clock tick forward
-	assert.True(t, tm.ReceiveTime <= tm.TransmitTime) // server clock tick forward
+	if isNil(t, err) {
+		assert.True(t, tm.OriginTime <= DestinationTime)  // local clock tick forward
+		assert.True(t, tm.ReceiveTime <= tm.TransmitTime) // server clock tick forward
+	}
 }
 
 func TestShortConversion(t *testing.T) {
