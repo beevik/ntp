@@ -155,7 +155,7 @@ type QueryOptions struct {
 // A Response contains time data, some of which is returned by the NTP server
 // and some of which is calculated by the client.
 type Response struct {
-	Time           time.Time     // receive time reported by the server
+	Time           time.Time     // transmit time reported by the server
 	RTT            time.Duration // round-trip time between client and server
 	ClockOffset    time.Duration // local clock offset relative to server
 	Poll           time.Duration // maximum polling interval
@@ -182,32 +182,36 @@ type Response struct {
 
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
-func (r *Response) Validate() bool {
-	// Reference Timestamp: Time when the system clock was last set or
-	// corrected. Semantics of this value seems to vary across NTP server
-	// implementations: it may be both NTP-clock time and system wall-clock
-	// time of this event. :-( So (T3 - ReferenceTime) is not true
-	// "freshness" as it may be actually NEGATIVE sometimes.
-	freshness := r.Time.Sub(r.ReferenceTime)
+func (r *Response) Validate() error {
+	// Check for illegal stratum values.
+	if r.Stratum < 0 || r.Stratum > MaxStratum {
+		return errors.New("invalid stratum in response")
+	}
 
-	// (Lambda := RootDelay/2 + RootDispersion) check against MAXDISP (16s)
-	// is required as ntp.org ntpd may report sane other fields while
-	// giving quite erratic clock. The check is declared in packet() at
+	// Estimate the "freshness" of the time. If it exceeds the maximum polling
+	// interval (~36 hours), then it cannot be considered "fresh".
+	freshness := r.Time.Sub(r.ReferenceTime)
+	if freshness > (1<<maxPoll)*time.Second {
+		return errors.New("server clock not fresh")
+	}
+
+	// Calculate the peer synchronization lambda:
+	//  	lambda := RootDelay/2 + RootDispersion
+	// If this value exceeds MAXDISP (16s), then the time is not suitable for
+	// synchronization purposes.
 	// https://tools.ietf.org/html/rfc5905#appendix-A.5.1.1.
 	lambda := r.RootDelay/2 + r.RootDispersion
+	if lambda > maxDispersion*time.Second {
+		return errors.New("invalid dispersion")
+	}
 
-	// `r.RTT > 0` check is not included as it does not depend on the
-	// packet itself, but also depends on clock _speed_. It's indicator
-	// that local clock run faster than remote one, so (T4-T1) < (T3-T2),
-	// but it may be local clock issue.
-	// E.g. T1/T2/T3/T4 = 0/10/20/1 leads to RTT = -9s.
+	// If the packet's transmit time is before the server's reference time,
+	// it's invalid.
+	if r.Time.Before(r.ReferenceTime) {
+		return errors.New("invalid time reported")
+	}
 
-	return 0 < r.Stratum && r.Stratum < MaxStratum && // RFC5905, packet()
-		lambda < maxDispersion*time.Second && // RFC5905, packet()
-		!r.Time.Before(r.ReferenceTime) && // RFC5905, packet(), reftime <= xmt ~~ !(xmt < reftime)
-		freshness <= (1<<maxPoll)*time.Second && // ntpdate uses 24h as a heuristics instead of ~36h derived from MAXPOLL
-		ntpEpoch.Before(r.Time) && // sanity
-		ntpEpoch.Before(r.ReferenceTime) // sanity
+	return nil
 }
 
 func (r *Response) rootDistance() time.Duration {
@@ -397,8 +401,9 @@ func TimeV(host string, version int) (time.Time, error) {
 		return time.Now(), err
 	}
 	r := parseTime(m, dst)
-	if !r.Validate() {
-		return time.Now(), errors.New("invalid SNTP reply")
+	err = r.Validate()
+	if err != nil {
+		return time.Now(), err
 	}
 	// An SNTP client implementing the on-wire protocol has a single server
 	// and no dependent clients.  It can operate with any subset of the NTP

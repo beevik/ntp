@@ -18,6 +18,7 @@ func TestTime(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
 	t.Logf("Local Time %v\n", now)
 	t.Logf("~True Time %v\n", tm)
 	t.Logf("Offset %v\n", tm.Sub(now))
@@ -35,14 +36,66 @@ func TestTimeFailure(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	testQueryVersion(4, t)
+	t.Logf("[%s] ----------------------", host)
+	t.Logf("[%s] NTP protocol version %d", host, 4)
+
+	r, err := QueryWithOptions(host, QueryOptions{Version: 4})
+	if err != nil {
+		// Don't treat timeouts like errors, because timeouts are common.
+		if strings.Contains(err.Error(), "i/o timeout") {
+			t.Logf("[%s] Query timeout: %s", host, err)
+		} else {
+			t.Errorf("[%s] Query failed: %s", host, err)
+		}
+		return
+	}
+
+	if r.Stratum < 1 || r.Stratum > 16 {
+		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
+	}
+
+	if abs(r.ClockOffset) > time.Second {
+		t.Errorf("[%s] Large clock offset: %v", host, r.ClockOffset)
+	}
+
+	if r.RTT < time.Duration(0) {
+		t.Errorf("[%s] Negative round trip time: %v", host, r.RTT)
+	}
+
+	t.Logf("[%s] Local Time: %v", host, time.Now())
+	t.Logf("[%s]   xmt Time: %v", host, r.Time)
+	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime) // it's displayed in UTC as NTP has no timezones
+	t.Logf("[%s]        RTT: %v", host, r.RTT)
+	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
+	t.Logf("[%s] !Causality: %v", host, r.causalityViolation())
+	t.Logf("[%s]       Poll: %v", host, r.Poll)
+	t.Logf("[%s]  Precision: %v", host, r.Precision)
+	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
+	t.Logf("[%s]      RefID: 0x%08x", host, r.ReferenceID)
+	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
+	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
+	t.Logf("[%s]   RootDist: %v", host, r.rootDistance())
+	t.Logf("[%s]       Leap: %v", host, r.Leap)
+
+	assertValid(t, r)
+}
+
+func assertInvalid(t *testing.T, r *Response) {
+	err := r.Validate()
+	assert.NotNil(t, err)
+}
+
+func assertValid(t *testing.T, r *Response) {
+	err := r.Validate()
+	if err != nil {
+		t.Logf("Invalid response. %v", err)
+	}
+	assert.Nil(t, err)
 }
 
 func TestValidate(t *testing.T) {
 	var m msg
 	var r *Response
-	r = parseTime(&m, 0)
-	assert.False(t, r.Validate())
 	m.Stratum = 1
 	m.ReferenceID = 0x58585858 // `XXXX`
 	m.ReferenceTime = 1 << 32
@@ -51,21 +104,21 @@ func TestValidate(t *testing.T) {
 	m.ReceiveTime = 1 << 32
 	m.TransmitTime = 1 << 32
 	r = parseTime(&m, 1<<32)
-	assert.True(t, r.Validate())
+	assertValid(t, r)
 
 	m.ReferenceTime = 2 << 32 // negative freshness
 	r = parseTime(&m, 1<<32)
-	assert.False(t, r.Validate())
+	assertInvalid(t, r)
 
 	m.OriginTime = 2 * 86400 << 32
 	m.ReceiveTime = 2 * 86400 << 32
 	m.TransmitTime = 2 * 86400 << 32
 	r = parseTime(&m, 2*86400<<32) // 48h freshness
-	assert.False(t, r.Validate())
+	assertInvalid(t, r)
 
 	m.ReferenceTime = 1 * 86400 << 32 // 24h freshness
 	r = parseTime(&m, 2*86400<<32)
-	assert.True(t, r.Validate())
+	assertValid(t, r)
 
 	m.RootDelay = 16 << 16
 	m.ReferenceTime = 1 << 32
@@ -74,7 +127,7 @@ func TestValidate(t *testing.T) {
 	m.TransmitTime = 15 << 32
 	r = parseTime(&m, 22<<32)
 	assert.NotNil(t, r)
-	assert.True(t, r.Validate()) // despite negative RTT!
+	assertValid(t, r)
 	assert.Equal(t, r.RTT, -3*time.Second)
 	assert.Equal(t, r.rootDistance(), 8*time.Second)        // does not account negative RTT
 	assert.Equal(t, r.causalityViolation(), 10*time.Second) // OriginTime / ReceiveTime
@@ -92,7 +145,7 @@ func TestCausality(t *testing.T) {
 	m.ReceiveTime = 2 << 32
 	m.TransmitTime = 3 << 32
 	r = parseTime(&m, 4<<32)
-	assert.True(t, r.Validate())
+	assertValid(t, r)
 	assert.Equal(t, r.causalityViolation(), time.Duration(0))
 
 	var t1, t2, t3, t4 int64
@@ -105,7 +158,7 @@ func TestCausality(t *testing.T) {
 					m.TransmitTime = ntpTime(t3 << 32)
 					r = parseTime(&m, ntpTime(t4<<32))
 					if t1 <= t4 && t2 <= t3 { // anything else is invalid getTime() response
-						assert.True(t, r.Validate()) // NB: negative RTT is still possible
+						assertValid(t, r) // negative RTT is still possible
 						var d12, d34 int64
 						if t1 >= t2 {
 							d12 = t1 - t2
@@ -161,51 +214,6 @@ func TestTimeOrdering(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, tm.OriginTime <= DestinationTime)  // local clock tick forward
 	assert.True(t, tm.ReceiveTime <= tm.TransmitTime) // server clock tick forward
-}
-
-func testQueryVersion(version int, t *testing.T) {
-	t.Logf("[%s] ----------------------", host)
-	t.Logf("[%s] NTP protocol version %d", host, version)
-
-	r, err := QueryWithOptions(host, QueryOptions{Version: version})
-	if err != nil {
-		// Don't treat timeouts like errors, because timeouts are common.
-		if strings.Contains(err.Error(), "i/o timeout") {
-			t.Logf("[%s] Query timeout: %s", host, err)
-		} else {
-			t.Errorf("[%s] Query failed: %s", host, err)
-		}
-		return
-	}
-
-	if r.Stratum < 1 || r.Stratum > 16 {
-		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
-	}
-
-	if abs(r.ClockOffset) > time.Second {
-		t.Errorf("[%s] Large clock offset: %v", host, r.ClockOffset)
-	}
-
-	if r.RTT < time.Duration(0) {
-		t.Errorf("[%s] Negative round trip time: %v", host, r.RTT)
-	}
-
-	t.Logf("[%s] Local Time: %v", host, time.Now())
-	t.Logf("[%s]   xmt Time: %v", host, r.Time)
-	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime) // it's displayed in UTC as NTP has no timezones
-	t.Logf("[%s]        RTT: %v", host, r.RTT)
-	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
-	t.Logf("[%s] !Causality: %v", host, r.causalityViolation())
-	t.Logf("[%s]       Poll: %v", host, r.Poll)
-	t.Logf("[%s]  Precision: %v", host, r.Precision)
-	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
-	t.Logf("[%s]      RefID: 0x%08x", host, r.ReferenceID)
-	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
-	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
-	t.Logf("[%s]   RootDist: %v", host, r.rootDistance())
-	t.Logf("[%s]       Leap: %v", host, r.Leap)
-
-	assert.True(t, r.Validate())
 }
 
 func TestShortConversion(t *testing.T) {
