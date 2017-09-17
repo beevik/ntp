@@ -36,13 +36,13 @@ const (
 type LeapIndicator uint8
 
 const (
-	// LeapNoWarning indicates no impending leap second
+	// LeapNoWarning indicates no impending leap second.
 	LeapNoWarning LeapIndicator = 0
 
-	// LeapAddSecond indicates the last minute of the day has 61 seconds
+	// LeapAddSecond indicates the last minute of the day has 61 seconds.
 	LeapAddSecond = 1
 
-	// LeapDelSecond indicates the last minute of the day has 59 seconds
+	// LeapDelSecond indicates the last minute of the day has 59 seconds.
 	LeapDelSecond = 2
 
 	// LeapNotInSync indicates an unsynchronized leap second.
@@ -50,7 +50,7 @@ const (
 )
 
 const (
-	// MaxStratum is the largest allowable NTP stratum value
+	// MaxStratum is the largest allowable NTP stratum value.
 	MaxStratum = 16
 
 	nanoPerSec = 1000000000
@@ -162,7 +162,8 @@ type Response struct {
 	// the server.
 	RTT time.Duration
 
-	// ClockOffset is the offset of the local clock relative to the server.
+	// ClockOffset is the estimated offset of the local clock relative to the
+	// server.
 	ClockOffset time.Duration
 
 	// Poll is the maximum interval between successive messages, in log2
@@ -173,16 +174,15 @@ type Response struct {
 	Precision time.Duration
 
 	// Stratum is the "stratum level" of the server, where 1 is a primary
-	// server and 2-15 are secondary servers, multiple times removed from the
-	// primary server.
+	// server and 2-15 are secondary servers.
 	Stratum uint8
 
 	// ReferenceID is a 32-bit identifier identifying the server or reference
 	// clock.
 	ReferenceID uint32
 
-	// ReferenceTime is the time of the time when the server's system clock
-	// was last set or corrected.
+	// ReferenceTime is the time when the server's system clock was last set
+	// or corrected.
 	ReferenceTime time.Time
 
 	// RootDelay is the server's round-trip time to the reference clock.
@@ -237,18 +237,19 @@ func (r *Response) Validate() error {
 		return errors.New("invalid time reported")
 	}
 
+	// nil means response is valid.
 	return nil
 }
 
-// Query returns the current time from the remote server host. It also returns
-// additional information about the exchanged time information.
+// Query returns a response from the remote NTP server host. It contains
+// the time at which the server transmitted the response as well as other
+// useful information about the time and the remote server.
 func Query(host string) (*Response, error) {
 	return QueryWithOptions(host, QueryOptions{})
 }
 
-// QueryWithOptions returns the current time from the remote server host.
-// It also returns additional information about the exchanged time
-// information. It allows the specification of additional query options.
+// QueryWithOptions performs the same function as Query but allows for the
+// customization of several query options.
 func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	m, now, err := getTime(host, opt)
 	if err != nil {
