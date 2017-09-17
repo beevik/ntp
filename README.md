@@ -18,7 +18,6 @@ function:
 response, err := ntp.Query("0.beevik-ntp.pool.ntp.org")
 ```
 
-NB: if you want to use the NTP Pool in your software you should request your
-own [vendor zone](http://www.pool.ntp.org/en/vendors.html).  You **must
-absolutely not use the default pool.ntp.org zone names** as the default
-configuration in your application or appliance.
+If you want to use the NTP Pool in your software you should request your
+own [vendor zone](http://www.pool.ntp.org/en/vendors.html).  You should
+avoid using default pool.ntp.org zone names in your applications.
