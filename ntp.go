@@ -57,18 +57,17 @@ const (
 
 	defaultNtpVersion = 4
 
-	maxPoll       = 17 // log2 max poll interval (~36 h)
-	maxDispersion = 16 // aka MAXDISP
+	defaultTimeout  = 5 * time.Second
+	maxPollInterval = (1 << 17) * time.Second
+	maxDispersion   = 16 * time.Second
 )
 
 var (
-	defaultTimeout = 5 * time.Second
-
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 // An ntpTime is a 64-bit fixed-point (Q32.32) representation of the number of
-// seconds elapsed since the NTP epoch.
+// seconds elapsed.
 type ntpTime uint64
 
 // Duration interprets the fixed-point ntpTime as a number of elapsed seconds
@@ -95,7 +94,7 @@ func toNtpTime(t time.Time) ntpTime {
 }
 
 // An ntpTimeShort is a 32-bit fixed-point (Q16.16) representation of the
-// number of seconds elapsed since the NTP epoch.
+// number of seconds elapsed.
 type ntpTimeShort uint32
 
 // Duration interprets the fixed-point ntpTimeShort as a number of elapsed
@@ -166,8 +165,7 @@ type Response struct {
 	// server.
 	ClockOffset time.Duration
 
-	// Poll is the maximum interval between successive messages, in log2
-	// seconds.
+	// Poll is the maximum interval between successive messages.
 	Poll time.Duration
 
 	// Precision is the reported precision of the server's clock.
@@ -217,7 +215,7 @@ func (r *Response) Validate() error {
 	// Estimate the "freshness" of the time. If it exceeds the maximum polling
 	// interval (~36 hours), then it cannot be considered "fresh".
 	freshness := r.Time.Sub(r.ReferenceTime)
-	if freshness > (1<<maxPoll)*time.Second {
+	if freshness > maxPollInterval {
 		return errors.New("server clock not fresh")
 	}
 
@@ -227,7 +225,7 @@ func (r *Response) Validate() error {
 	// synchronization purposes.
 	// https://tools.ietf.org/html/rfc5905#appendix-A.5.1.1.
 	lambda := r.RootDelay/2 + r.RootDispersion
-	if lambda > maxDispersion*time.Second {
+	if lambda > maxDispersion {
 		return errors.New("invalid dispersion")
 	}
 
