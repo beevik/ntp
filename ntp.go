@@ -79,7 +79,7 @@ func (t ntpTime) Duration() time.Duration {
 	return time.Duration(sec + frac)
 }
 
-// Time interprets the fixed-point ntpTime as a an absolute time and returns
+// Time interprets the fixed-point ntpTime as an absolute time and returns
 // the corresponding time.Time value.
 func (t ntpTime) Time() time.Time {
 	return ntpEpoch.Add(t.Duration())
@@ -132,23 +132,23 @@ func (m *msg) setMode(md mode) {
 	m.LiVnMode = (m.LiVnMode & 0xf8) | uint8(md)
 }
 
-// setLeapIndicator modifies the leap indicator on the message.
-func (m *msg) setLeapIndicator(li LeapIndicator) {
+// setLeap modifies the leap indicator on the message.
+func (m *msg) setLeap(li LeapIndicator) {
 	m.LiVnMode = (m.LiVnMode & 0x3f) | uint8(li)<<6
 }
 
-// getLeapIndicator returns the leap indicator on the message.
-func (m *msg) getLeapIndicator() LeapIndicator {
+// getLeap returns the leap indicator on the message.
+func (m *msg) getLeap() LeapIndicator {
 	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
 }
 
-// QueryOptions contains the list of configurable options that may be used with
-// the QueryWithOptions function.
+// QueryOptions contains the list of configurable options that may be used
+// with the QueryWithOptions function.
 type QueryOptions struct {
 	Timeout      time.Duration // defaults to 5 seconds
 	Version      int           // NTP protocol version, defaults to 4
-	LocalAddress string        // IP to use for the client address
-	Port         int           // NTP Server port for UDPAddr.Port, defaults to 123
+	LocalAddress string        // IP address to use for the client address
+	Port         int           // NTP Server port, defaults to 123
 	TTL          int           // IP TTL to use for outgoing UDP packets, defaults to system default
 }
 
@@ -258,31 +258,33 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	return parseTime(m, now), nil
 }
 
-// parseTime parses NTP packet paired with the packet arrival time (dst) and
-// returns Response having NTP packet data converted to go types.
-func parseTime(m *msg, dst ntpTime) *Response {
-	r := &Response{
-		Time:           m.TransmitTime.Time(),
-		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, dst),
-		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, dst),
-		Poll:           toInterval(m.Poll),
-		Precision:      toInterval(m.Precision),
-		Stratum:        m.Stratum,
-		ReferenceID:    m.ReferenceID,
-		ReferenceTime:  m.ReferenceTime.Time(),
-		RootDelay:      m.RootDelay.Duration(),
-		RootDispersion: m.RootDispersion.Duration(),
-		Leap:           m.getLeapIndicator(),
+// TimeV returns the current time using information from a remote NTP server.
+// On error, it returns the local system time. The version may be 2, 3, or 4.
+func TimeV(host string, version int) (time.Time, error) {
+	m, recvTime, err := getTime(host, QueryOptions{Version: version})
+	if err != nil {
+		return time.Now(), err
 	}
 
-	// Calculate values depending on other calculated values
-	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
-	r.CausalityViolation = causalityViolation(r.RTT, r.ClockOffset)
+	r := parseTime(m, recvTime)
+	err = r.Validate()
+	if err != nil {
+		return time.Now(), err
+	}
 
-	return r
+	// Use the clock offset to calculate the time.
+	return time.Now().Add(r.ClockOffset), nil
 }
 
-// getTime returns NTP packet & DestinationTime timestamp.
+// Time returns the current time using information from a remote NTP server.
+// It uses version 4 of the NTP protocol. On error, it returns the local
+// system time.
+func Time(host string) (time.Time, error) {
+	return TimeV(host, defaultNtpVersion)
+}
+
+// getTime performs the NTP server query and returns the response message
+// along with the local system time it was received.
 func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if opt.Version == 0 {
 		opt.Version = defaultNtpVersion
@@ -297,7 +299,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		return nil, 0, err
 	}
 
-	// Resolve the local address, if specified as an option.
+	// Resolve the local address if specified as an option.
 	var laddr *net.UDPAddr
 	if opt.LocalAddress != "" {
 		laddr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(opt.LocalAddress, "0"))
@@ -306,7 +308,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		}
 	}
 
-	// Allow port override if requested.
+	// Override the port if requested.
 	if opt.Port != 0 {
 		raddr.Port = opt.Port
 	}
@@ -333,73 +335,72 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 	con.SetDeadline(time.Now().Add(opt.Timeout))
 
-	// Start composing the NTP packet.
-	m := new(msg)
-	m.setMode(client)
-	m.setVersion(opt.Version)
-	m.setLeapIndicator(LeapNotInSync)
+	// Allocate a message to hold the response.
+	recvMsg := new(msg)
 
-	// Set the packet's TransmitTime field. Using a random integer field
-	// would ensure good privacy and spoofing resistance. But math/rand is
-	// not secure enough, and crypto/rand is not available on every platform.
-	// So use the system time instead.
-	xmitTime := time.Now()
-	xmitNtpTime := toNtpTime(xmitTime)
-	m.TransmitTime = xmitNtpTime
+	// Allocate a message to hold the query.
+	xmitMsg := new(msg)
+	xmitMsg.setMode(client)
+	xmitMsg.setVersion(opt.Version)
+	xmitMsg.setLeap(LeapNotInSync)
 
-	// Transmit the packet.
-	err = binary.Write(con, binary.BigEndian, m)
+	// Store the current time in the TransmitTime field. Normally it would
+	// be better to use a random value here to ensure privacy and spoofing
+	// resistance. But math/rand is not secure, and crypto/rand is not
+	// available on every platform.
+	xmitMsg.TransmitTime = toNtpTime(time.Now())
+
+	// Transmit the query.
+	err = binary.Write(con, binary.BigEndian, xmitMsg)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Read the response packet.
-	err = binary.Read(con, binary.BigEndian, m)
+	// Receive the response.
+	err = binary.Read(con, binary.BigEndian, recvMsg)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	delta := time.Since(xmitTime)
-	dstTime := xmitTime.Add(delta)
-	dstNtpTime := toNtpTime(dstTime)
+	// Keep track of the time the response was received.
+	recvTime := toNtpTime(time.Now())
 
 	// Check for invalid fields.
-	if m.OriginTime != xmitNtpTime {
+	if recvMsg.OriginTime != xmitMsg.TransmitTime {
 		return nil, 0, errors.New("server response mismatch")
 	}
-	if m.OriginTime > dstNtpTime {
-		return nil, 0, errors.New("client clock tick backwards")
+	if recvMsg.OriginTime > recvTime {
+		return nil, 0, errors.New("client clock ticked backwards")
 	}
-	if m.ReceiveTime > m.TransmitTime {
-		return nil, 0, errors.New("server clock tick backwards")
+	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
+		return nil, 0, errors.New("server clock ticked backwards")
 	}
 
-	return m, dstNtpTime, nil
+	return recvMsg, recvTime, nil
 }
 
-// TimeV returns the current time using information from a remote NTP server.
-// On error, it returns the local system time. The version may be 2, 3, or 4.
-func TimeV(host string, version int) (time.Time, error) {
-	m, dst, err := getTime(host, QueryOptions{Version: version})
-	if err != nil {
-		return time.Now(), err
+// parseTime parses the NTP packet along with the packet receive time to
+// generate a Response record.
+func parseTime(m *msg, recvTime ntpTime) *Response {
+	r := &Response{
+		Time:           m.TransmitTime.Time(),
+		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
+		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
+		Poll:           toInterval(m.Poll),
+		Precision:      toInterval(m.Precision),
+		Stratum:        m.Stratum,
+		ReferenceID:    m.ReferenceID,
+		ReferenceTime:  m.ReferenceTime.Time(),
+		RootDelay:      m.RootDelay.Duration(),
+		RootDispersion: m.RootDispersion.Duration(),
+		Leap:           m.getLeap(),
 	}
 
-	r := parseTime(m, dst)
-	err = r.Validate()
-	if err != nil {
-		return time.Now(), err
-	}
+	// Calculate values depending on other calculated values
+	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
+	r.CausalityViolation = causalityViolation(r.RTT, r.ClockOffset)
 
-	// Use the clock offset to calculate the time.
-	return time.Now().Add(r.ClockOffset), nil
-}
-
-// Time returns the current time using information from a remote NTP server.
-// It uses version 4 of the NTP protocol. On error, it returns the local
-// system time.
-func Time(host string) (time.Time, error) {
-	return TimeV(host, defaultNtpVersion)
+	return r
 }
 
 func rtt(t1, t2, t3, t4 ntpTime) time.Duration {

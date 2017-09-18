@@ -75,15 +75,11 @@ func TestQuery(t *testing.T) {
 		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
 	}
 
-	if abs(r.ClockOffset) > 10*time.Second {
-		t.Errorf("[%s] Large clock offset: %v", host, r.ClockOffset)
-	}
-
 	if r.RTT < time.Duration(0) {
 		t.Errorf("[%s] Negative round trip time: %v", host, r.RTT)
 	}
 
-	t.Logf("[%s] Local Time: %v", host, time.Now())
+	t.Logf("[%s]  LocalTime: %v", host, time.Now())
 	t.Logf("[%s]   XmitTime: %v", host, r.Time)
 	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime)
 	t.Logf("[%s]        RTT: %v", host, r.RTT)
