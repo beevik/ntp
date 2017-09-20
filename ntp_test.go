@@ -71,7 +71,7 @@ func TestQuery(t *testing.T) {
 		return
 	}
 
-	if r.Stratum < 1 || r.Stratum > 16 {
+	if r.Stratum >= 17 {
 		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
 	}
 
