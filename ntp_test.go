@@ -48,18 +48,18 @@ func TestTime(t *testing.T) {
 }
 
 func TestTimeFailure(t *testing.T) {
-	// First use a link-local IP address that won't have an NTP
-	// server listening on it. This should return the local system's time.
+	// Use a link-local IP address that won't have an NTP server listening
+	// on it. This should return the local system's time.
 	local, err := Time("169.254.122.229")
 	assert.NotNil(t, err)
 
-	// Now use a valid NTP server IP address.
-	remote, err := Time(host)
-	assert.Nil(t, err)
+	now := time.Now()
 
-	// The remote and local times should be approximately equal.
-	diffMinutes := remote.Sub(local).Minutes()
-	assert.True(t, diffMinutes > -15 && diffMinutes < 15)
+	// When the NTP time query fails, it should return the system time.
+	// Compare the "now" system time with the returned time. It should be
+	// about the same.
+	diffMinutes := now.Sub(local).Minutes()
+	assert.True(t, diffMinutes > -1 && diffMinutes < 1)
 }
 
 func TestQuery(t *testing.T) {
@@ -71,7 +71,7 @@ func TestQuery(t *testing.T) {
 		return
 	}
 
-	if r.Stratum >= 17 {
+	if r.Stratum > 16 {
 		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
 	}
 
@@ -184,43 +184,25 @@ func TestCausality(t *testing.T) {
 	}
 }
 
-func TestServerPort(t *testing.T) {
-	tm, _, err := getTime(host, QueryOptions{Port: 9}) // `discard` service
+func TestBadServerPort(t *testing.T) {
+	// Not NTP port.
+	tm, _, err := getTime(host, QueryOptions{Port: 9})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
 func TestTTL(t *testing.T) {
-	// TTL should cause a timeout here:
+	// TTL of 1 should cause a timeout.
 	tm, _, err := getTime(host, QueryOptions{TTL: 1})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
-
-	// TTL should be large enough not to fail:
-	tm, _, err = getTime(host, QueryOptions{TTL: 255})
-	if isNil(t, err) {
-		assert.NotNil(t, tm)
-	}
 }
 
 func TestQueryTimeout(t *testing.T) {
+	// Force an immediate timeout.
 	tm, err := QueryWithOptions(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
-}
-
-func TestGetTimeTimeout(t *testing.T) {
-	tm, _, err := getTime(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
-	assert.Nil(t, tm)
-	assert.NotNil(t, err)
-}
-
-func TestTimeOrdering(t *testing.T) {
-	tm, DestinationTime, err := getTime(host, QueryOptions{})
-	if isNil(t, err) {
-		assert.True(t, tm.OriginTime <= DestinationTime)  // local clock tick forward
-		assert.True(t, tm.ReceiveTime <= tm.TransmitTime) // server clock tick forward
-	}
 }
 
 func TestShortConversion(t *testing.T) {
