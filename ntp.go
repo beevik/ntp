@@ -10,6 +10,7 @@
 package ntp
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -342,11 +343,20 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	xmitMsg.setVersion(opt.Version)
 	xmitMsg.setLeap(LeapNotInSync)
 
-	// Store the current time in the TransmitTime field. Normally it would
-	// be better to use a random value here to ensure privacy and spoofing
-	// resistance. But math/rand is not secure, and crypto/rand is not
-	// available on every platform.
-	xmitMsg.TransmitTime = toNtpTime(time.Now())
+	// To ensure privacy and prevent spoofing, try to use a random 64-bit
+	// value for the TransmitTime. If crypto/rand couldn't generate a
+	// random value, fall back to using the system clock. Keep track of when
+	// the messsage was actually sent.
+	r := make([]byte, 8)
+	_, err = rand.Read(r)
+	var sendTime ntpTime
+	if err == nil {
+		xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(r))
+		sendTime = toNtpTime(time.Now())
+	} else {
+		xmitMsg.TransmitTime = toNtpTime(time.Now())
+		sendTime = xmitMsg.TransmitTime
+	}
 
 	// Transmit the query.
 	err = binary.Write(con, binary.BigEndian, xmitMsg)
@@ -373,6 +383,9 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
 		return nil, 0, errors.New("server clock ticked backwards")
 	}
+
+	// Correct the received message's origin time using the actual send time.
+	recvMsg.OriginTime = sendTime
 
 	return recvMsg, recvTime, nil
 }
