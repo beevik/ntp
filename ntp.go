@@ -377,9 +377,6 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if recvMsg.OriginTime != xmitMsg.TransmitTime {
 		return nil, 0, errors.New("server response mismatch")
 	}
-	if recvMsg.OriginTime > recvTime {
-		return nil, 0, errors.New("client clock ticked backwards")
-	}
 	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
 		return nil, 0, errors.New("server clock ticked backwards")
 	}
