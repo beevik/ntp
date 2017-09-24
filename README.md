@@ -4,16 +4,18 @@
 ntp
 ===
 
-The ntp package is an implementation of a simple NTP client. It allows you
-to connect to a remote NTP server and request the current time.
+The ntp package is an implementation of a Simple NTP (SNTP) client based on
+[RFC5905](https://tools.ietf.org/html/rfc5905). It allows you to connect to
+a remote NTP server and request the current time.
 
-To request the current time, simply do the following:
+If all you care about is the current time according to a known remote NTP
+server, simply use the `Time` function:
 ```go
 time, err := ntp.Time("0.beevik-ntp.pool.ntp.org")
 ```
 
-To request the current time along with additional metadata, use the Query
-function:
+If you want the time as well as additional metadata about the time, use the
+`Query` function instead:
 ```go
 response, err := ntp.Query("0.beevik-ntp.pool.ntp.org")
 ```

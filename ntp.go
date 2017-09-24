@@ -1,11 +1,12 @@
-// Copyright 2015 Brett Vickers.
+// Copyright 2015-2017 Brett Vickers.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package ntp provides a simple mechanism for querying the current time from
-// a remote NTP server. See RFC 5905. Approach inspired by go-nuts post by
-// Michael Hofmann:
+// Package ntp provides an implementation of a Simple NTP (SNTP) client
+// capable of querying the current time from a remote NTP server.  See
+// RFC5905 (https://tools.ietf.org/html/rfc5905) for more details.
 //
+// This approach grew out of a go-nuts post by Michael Hofmann:
 // https://groups.google.com/forum/?fromgroups#!topic/golang-nuts/FlcdMU5fkLQ
 package ntp
 
