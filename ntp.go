@@ -20,17 +20,12 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-type mode uint8
-
 const (
-	reserved mode = 0 + iota
-	symmetricActive
-	symmetricPassive
-	client
-	server
-	broadcast
-	controlMessage
-	reservedPrivate
+	// MaxStratum is the largest allowable NTP stratum value.
+	MaxStratum = 16
+
+	// MaxRootDistance is the largest possible root distance (in seconds).
+	MaxRootDistance = 2.96608
 )
 
 // The LeapIndicator is used to warn if a leap second should be inserted
@@ -51,21 +46,33 @@ const (
 	LeapNotInSync = 3
 )
 
+// Internal constants
 const (
-	// MaxStratum is the largest allowable NTP stratum value.
-	MaxStratum = 16
-
-	nanoPerSec = 1000000000
-
 	defaultNtpVersion = 4
-
-	defaultTimeout  = 5 * time.Second
-	maxPollInterval = (1 << 17) * time.Second
-	maxDispersion   = 16 * time.Second
+	nanoPerSec        = 1000000000
+	defaultTimeout    = 5 * time.Second
+	maxPollInterval   = (1 << 17) * time.Second
+	minDispersion     = 10 * time.Millisecond
+	maxDispersion     = 16 * time.Second
 )
 
+// Internal variables
 var (
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+)
+
+type mode uint8
+
+// NTP modes. This package uses only client mode.
+const (
+	reserved mode = 0 + iota
+	symmetricActive
+	symmetricPassive
+	client
+	server
+	broadcast
+	controlMessage
+	reservedPrivate
 )
 
 // An ntpTime is a 64-bit fixed-point (Q32.32) representation of the number of
@@ -150,7 +157,7 @@ type QueryOptions struct {
 	Version      int           // NTP protocol version, defaults to 4
 	LocalAddress string        // IP address to use for the client address
 	Port         int           // NTP Server port, defaults to 123
-	TTL          int           // IP TTL to use for outgoing UDP packets, defaults to system default
+	TTL          int           // IP TTL to use, defaults to system default
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -163,8 +170,8 @@ type Response struct {
 	// the server.
 	RTT time.Duration
 
-	// ClockOffset is the estimated offset of the local clock relative to the
-	// server.
+	// ClockOffset is the estimated offset of the local clock relative to
+	// the server.
 	ClockOffset time.Duration
 
 	// Poll is the maximum interval between successive messages.
@@ -177,45 +184,39 @@ type Response struct {
 	// server and 2-15 are secondary servers.
 	Stratum uint8
 
-	// ReferenceID is a 32-bit identifier identifying the server or reference
-	// clock.
+	// ReferenceID is a 32-bit identifier identifying the server or
+	// reference clock.
 	ReferenceID uint32
 
-	// ReferenceTime is the time when the server's system clock was last set
-	// or corrected.
+	// ReferenceTime is the time when the server's system clock was last
+	// set or corrected.
 	ReferenceTime time.Time
 
 	// RootDelay is the server's round-trip time to the reference clock.
 	RootDelay time.Duration
 
-	// RootDispersion is the server's total dispersion to the reference clock.
+	// RootDispersion is the server's total dispersion to the reference
+	// clock.
 	RootDispersion time.Duration
 
 	// Leap is the leap-second indicator.
 	Leap LeapIndicator
 
-	// RootDistance is the single-packet estimate of the root synchronization
-	// distance. https://tools.ietf.org/html/rfc5905#appendix-A.5.5.2
+	// RootDistance is the single-packet estimate of the root
+	// synchronization distance.
 	RootDistance time.Duration
-
-	// CausalityViolation is an amount of time representing the "causality
-	// violation" between the client and the server. It may be used as a
-	// lower bound on the current time synchronization error between the
-	// client and server clock. A leap second may contribute as much as 1
-	// second of causality violation.
-	CausalityViolation time.Duration
 }
 
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
 func (r *Response) Validate() error {
-	// Check for illegal stratum values.
-	if r.Stratum < 0 || r.Stratum > MaxStratum {
+	// Check for an illegal stratum value.
+	if r.Stratum > MaxStratum {
 		return errors.New("invalid stratum in response")
 	}
 
-	// Estimate the "freshness" of the time. If it exceeds the maximum polling
-	// interval (~36 hours), then it cannot be considered "fresh".
+	// Estimate the "freshness" of the time. If it exceeds the maximum
+	// polling interval (~36 hours), then it cannot be considered "fresh".
 	freshness := r.Time.Sub(r.ReferenceTime)
 	if freshness > maxPollInterval {
 		return errors.New("server clock not fresh")
@@ -223,21 +224,21 @@ func (r *Response) Validate() error {
 
 	// Calculate the peer synchronization distance, lambda:
 	//  	lambda := RootDelay/2 + RootDispersion
-	// If this value exceeds MAXDISP (16s), then the time is not suitable for
-	// synchronization purposes.
+	// If this value exceeds MAXDISP (16s), then the time is not suitable
+	// for synchronization purposes.
 	// https://tools.ietf.org/html/rfc5905#appendix-A.5.1.1.
 	lambda := r.RootDelay/2 + r.RootDispersion
 	if lambda > maxDispersion {
 		return errors.New("invalid dispersion")
 	}
 
-	// If the packet's transmit time is before the server's reference time,
-	// it's invalid.
+	// If the packet's transmit time is before the server's reference
+	// time, it's invalid.
 	if r.Time.Before(r.ReferenceTime) {
 		return errors.New("invalid time reported")
 	}
 
-	// nil means response is valid.
+	// nil means the response is valid.
 	return nil
 }
 
@@ -346,8 +347,8 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 
 	// To ensure privacy and prevent spoofing, try to use a random 64-bit
 	// value for the TransmitTime. If crypto/rand couldn't generate a
-	// random value, fall back to using the system clock. Keep track of when
-	// the messsage was actually sent.
+	// random value, fall back to using the system clock. Keep track of
+	// when the messsage was actually sent.
 	r := make([]byte, 8)
 	_, err = rand.Read(r)
 	var sendTime ntpTime
@@ -382,7 +383,8 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		return nil, 0, errors.New("server clock ticked backwards")
 	}
 
-	// Correct the received message's origin time using the actual send time.
+	// Correct the received message's origin time using the actual send
+	// time.
 	recvMsg.OriginTime = sendTime
 
 	return recvMsg, recvTime, nil
@@ -393,7 +395,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 func parseTime(m *msg, recvTime ntpTime) *Response {
 	r := &Response{
 		Time:           m.TransmitTime.Time(),
-		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
+		RTT:            rtt(m.Precision, m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Poll:           toInterval(m.Poll),
 		Precision:      toInterval(m.Precision),
@@ -407,78 +409,57 @@ func parseTime(m *msg, recvTime ntpTime) *Response {
 
 	// Calculate values depending on other calculated values
 	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
-	r.CausalityViolation = causalityViolation(r.RTT, r.ClockOffset)
 
 	return r
 }
 
-func rtt(t1, t2, t3, t4 ntpTime) time.Duration {
-	// round trip delay time (https://tools.ietf.org/html/rfc5905#section-8)
-	//   T1 = client send time
-	//   T2 = server receive time
-	//   T3 = server reply time
-	//   T4 = client receive time
-	//
-	// RTT d:
-	//   d = (T4-T1) - (T3-T2)
-	a := t4.Time().Sub(t1.Time())
-	b := t3.Time().Sub(t2.Time())
-	return a - b
+// The following helper functions calculate additional metadata about the
+// timestamps received from an NTP server.  The timestamps returned by
+// the server are given the following variable names:
+//
+//   org = Origin Timestamp (client send time)
+//   rec = Receive Timestamp (server receive time)
+//   xmt = Transmit Timestamp (server reply time)
+//   dst = Destination Timestamp (client receive time)
+
+func rtt(prec int8, org, rec, xmt, dst ntpTime) time.Duration {
+	// round trip delay time
+	//   rtt = (dst-org) - (xmt-rec)
+	a := dst.Time().Sub(org.Time())
+	b := xmt.Time().Sub(rec.Time())
+	rtt := a - b
+	if rtt < toInterval(prec) {
+		rtt = toInterval(prec)
+	}
+	return rtt
 }
 
-func offset(t1, t2, t3, t4 ntpTime) time.Duration {
-	// local offset equation (https://tools.ietf.org/html/rfc5905#section-8)
-	//   T1 = client send time
-	//   T2 = server receive time
-	//   T3 = server reply time
-	//   T4 = client receive time
-	//
-	// Local clock offset t:
-	//   t = ((T2-T1) + (T3-T4)) / 2
-	a := t2.Time().Sub(t1.Time())
-	b := t3.Time().Sub(t4.Time())
+func offset(org, rec, xmt, dst ntpTime) time.Duration {
+	// local clock offset
+	//   offset = ((rec-org) + (xmt-dst)) / 2
+	a := rec.Time().Sub(org.Time())
+	b := xmt.Time().Sub(dst.Time())
 	return (a + b) / time.Duration(2)
 }
 
-func rootDistance(rtt, delay, disp time.Duration) time.Duration {
-	// RFC5905 suggests more strict check against _peer_ in fit(), that
-	// root_dist should be less than MAXDIST + PHI * LOG2D(s.poll).
-	// MAXPOLL is 17, so it is approximately at most (1s + 15e-6 * 2**17) =
-	// 2.96608 s, but MAXDIST and MAXPOLL are confugurable values in the
-	// reference implementation, so only MAXDISP check has hardcoded value
-	// in Validate().
+func rootDistance(rtt, rootDelay, rootDisp time.Duration) time.Duration {
+	// The root distance is:
+	// 	the maximum error due to all causes of the local clock
+	//	relative to the primary server. It is defined as half the
+	//	total delay plus total dispersion plus peer jitter.
+	//	(https://tools.ietf.org/html/rfc5905#appendix-A.5.5.2)
 	//
-	// root_dist should also have following summands
-	// + Dispersion towards the peer
-	// + jitter of the link to the peer
-	// + PHI * (current_uptime - peer->uptime_of_last_update)
-	// but all these values are 0 if only single NTP packet was sent.
-	if rtt < 0 {
-		rtt = 0
+	// In the reference implementation, it is calculated as follows:
+	//	rootDist = max(MINDISP, rootDelay + rtt)/2 + rootDisp
+	//			+ peerDisp + PHI * (uptime - peerUptime)
+	//			+ peerJitter
+	// For an SNTP client which sends only a single packet, most of these
+	// terms are irrelevant and become 0.
+	totalDelay := rtt + rootDelay
+	if totalDelay < minDispersion {
+		totalDelay = minDispersion
 	}
-	return (rtt+delay)/2 + disp
-}
-
-func causalityViolation(rtt, offset time.Duration) time.Duration {
-	// NTP query has four timestamps for consecutive events: T1, T2, T3
-	// and T4. T1 and T4 use the local clock, T2 and T3 the server clock.
-	// RTT    = (T4 - T1) - (T3 - T2)     =   T4 - T3 + T2 - T1
-	// Offset = (T2 + T3)/2 - (T4 + T1)/2 = (-T4 + T3 + T2 - T1) / 2
-	// => T2 - T1 = RTT/2 + Offset && T4 - T3 = RTT/2 - Offset
-	// If system wall-clock is synced to NTP-clock then T2 >= T1 && T4 >= T3.
-	// This check may be useful against chrony NTP daemon as it starts
-	// relaying sane NTP clock before system wall-clock is actually adjusted.
-	violation := rtt / 2
-	if offset > 0 {
-		violation -= offset
-	} else {
-		violation += offset
-	}
-
-	if violation < 0 {
-		return -violation
-	}
-	return time.Duration(0)
+	return totalDelay/2 + rootDisp
 }
 
 func toInterval(t int8) time.Duration {

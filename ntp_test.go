@@ -88,7 +88,6 @@ func TestQuery(t *testing.T) {
 	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime)
 	t.Logf("[%s]        RTT: %v", host, r.RTT)
 	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
-	t.Logf("[%s] !Causality: %v", host, r.CausalityViolation)
 	t.Logf("[%s]       Poll: %v", host, r.Poll)
 	t.Logf("[%s]  Precision: %v", host, r.Precision)
 	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
@@ -107,27 +106,33 @@ func TestValidate(t *testing.T) {
 	m.Stratum = 1
 	m.ReferenceID = 0x58585858 // `XXXX`
 	m.ReferenceTime = 1 << 32
+	m.Precision = -1 // 500ms
 
+	// Zero RTT
 	m.OriginTime = 1 << 32
 	m.ReceiveTime = 1 << 32
 	m.TransmitTime = 1 << 32
 	r = parseTime(&m, 1<<32)
 	assertValid(t, r)
 
-	m.ReferenceTime = 2 << 32 // negative freshness
+	// Negative freshness
+	m.ReferenceTime = 2 << 32
 	r = parseTime(&m, 1<<32)
 	assertInvalid(t, r)
 
+	// Unfresh clock (48h)
 	m.OriginTime = 2 * 86400 << 32
 	m.ReceiveTime = 2 * 86400 << 32
 	m.TransmitTime = 2 * 86400 << 32
-	r = parseTime(&m, 2*86400<<32) // 48h freshness
+	r = parseTime(&m, 2*86400<<32)
 	assertInvalid(t, r)
 
-	m.ReferenceTime = 1 * 86400 << 32 // 24h freshness
+	// Fresh clock (24h)
+	m.ReferenceTime = 1 * 86400 << 32
 	r = parseTime(&m, 2*86400<<32)
 	assertValid(t, r)
 
+	// Values indicating a negative RTT
 	m.RootDelay = 16 << 16
 	m.ReferenceTime = 1 << 32
 	m.OriginTime = 20 << 32
@@ -136,56 +141,8 @@ func TestValidate(t *testing.T) {
 	r = parseTime(&m, 22<<32)
 	assert.NotNil(t, r)
 	assertValid(t, r)
-	assert.Equal(t, r.RTT, -3*time.Second)
-	assert.Equal(t, r.RootDistance, 8*time.Second)
-	assert.Equal(t, r.CausalityViolation, 10*time.Second)
-}
-
-func TestCausality(t *testing.T) {
-	var m msg
-	var r *Response
-
-	m.Stratum = 1
-	m.ReferenceID = 0x58585858 // `XXXX`
-	m.ReferenceTime = 1 << 32
-
-	m.OriginTime = 1 << 32
-	m.ReceiveTime = 2 << 32
-	m.TransmitTime = 3 << 32
-	r = parseTime(&m, 4<<32)
-	assertValid(t, r)
-	assert.Equal(t, r.CausalityViolation, time.Duration(0))
-
-	var t1, t2, t3, t4 int64
-	for t1 = 1; t1 <= 10; t1++ {
-		for t2 = 1; t2 <= 10; t2++ {
-			for t3 = 1; t3 <= 10; t3++ {
-				for t4 = 1; t4 <= 10; t4++ {
-					m.OriginTime = ntpTime(t1 << 32)
-					m.ReceiveTime = ntpTime(t2 << 32)
-					m.TransmitTime = ntpTime(t3 << 32)
-					r = parseTime(&m, ntpTime(t4<<32))
-					if t1 <= t4 && t2 <= t3 { // anything else is invalid getTime() response
-						assertValid(t, r) // negative RTT is still possible
-						var d12, d34 int64
-						if t1 >= t2 {
-							d12 = t1 - t2
-						}
-						if t3 >= t4 {
-							d34 = t3 - t4
-						}
-						var caserr int64
-						if d12 > d34 {
-							caserr = d12
-						} else {
-							caserr = d34
-						}
-						assert.Equal(t, r.CausalityViolation, time.Duration(caserr)*time.Second)
-					}
-				}
-			}
-		}
-	}
+	assert.Equal(t, r.RTT, 500*time.Millisecond)
+	assert.Equal(t, r.RootDistance, 8250*time.Millisecond)
 }
 
 func TestBadServerPort(t *testing.T) {
