@@ -395,7 +395,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 func parseTime(m *msg, recvTime ntpTime) *Response {
 	r := &Response{
 		Time:           m.TransmitTime.Time(),
-		RTT:            rtt(m.Precision, m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
+		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Poll:           toInterval(m.Poll),
 		Precision:      toInterval(m.Precision),
@@ -422,14 +422,14 @@ func parseTime(m *msg, recvTime ntpTime) *Response {
 //   xmt = Transmit Timestamp (server reply time)
 //   dst = Destination Timestamp (client receive time)
 
-func rtt(prec int8, org, rec, xmt, dst ntpTime) time.Duration {
+func rtt(org, rec, xmt, dst ntpTime) time.Duration {
 	// round trip delay time
 	//   rtt = (dst-org) - (xmt-rec)
 	a := dst.Time().Sub(org.Time())
 	b := xmt.Time().Sub(rec.Time())
 	rtt := a - b
-	if rtt < toInterval(prec) {
-		rtt = toInterval(prec)
+	if rtt < 0 {
+		rtt = 0
 	}
 	return rtt
 }

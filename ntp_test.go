@@ -141,8 +141,8 @@ func TestValidate(t *testing.T) {
 	r = parseTime(&m, 22<<32)
 	assert.NotNil(t, r)
 	assertValid(t, r)
-	assert.Equal(t, r.RTT, 500*time.Millisecond)
-	assert.Equal(t, r.RootDistance, 8250*time.Millisecond)
+	assert.Equal(t, r.RTT, 0*time.Second)
+	assert.Equal(t, r.RootDistance, 8*time.Second)
 }
 
 func TestBadServerPort(t *testing.T) {
