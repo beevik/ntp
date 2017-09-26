@@ -81,14 +81,6 @@ func TestQuery(t *testing.T) {
 		return
 	}
 
-	if r.Stratum > 16 {
-		t.Errorf("[%s] Invalid stratum: %d", host, r.Stratum)
-	}
-
-	if r.RTT < time.Duration(0) {
-		t.Errorf("[%s] Negative round trip time: %v", host, r.RTT)
-	}
-
 	t.Logf("[%s]  LocalTime: %v", host, time.Now())
 	t.Logf("[%s]   XmitTime: %v", host, r.Time)
 	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime)
