@@ -210,9 +210,12 @@ type Response struct {
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
 func (r *Response) Validate() error {
-	// Check for an illegal stratum value.
-	if r.Stratum > MaxStratum {
-		return errors.New("invalid stratum in response")
+	// Check for illegal stratum values.
+	if r.Stratum == 0 {
+		return errors.New("kiss of death received")
+	}
+	if r.Stratum >= MaxStratum {
+		return errors.New("invalid stratum received")
 	}
 
 	// Estimate the "freshness" of the time. If it exceeds the maximum
