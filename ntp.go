@@ -23,9 +23,6 @@ import (
 const (
 	// MaxStratum is the largest allowable NTP stratum value.
 	MaxStratum = 16
-
-	// MaxRootDistance is the largest possible root distance (in seconds).
-	MaxRootDistance = 2.96608
 )
 
 // The LeapIndicator is used to warn if a leap second should be inserted
