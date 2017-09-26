@@ -215,6 +215,11 @@ func (r *Response) Validate() error {
 		return errors.New("invalid stratum received")
 	}
 
+	// Handle invalid leap second indicator.
+	if r.Leap == LeapNotInSync {
+		return errors.New("invalid leap second")
+	}
+
 	// Estimate the "freshness" of the time. If it exceeds the maximum
 	// polling interval (~36 hours), then it cannot be considered "fresh".
 	freshness := r.Time.Sub(r.ReferenceTime)
