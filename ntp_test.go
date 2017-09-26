@@ -21,9 +21,15 @@ func isNil(t *testing.T, err error) bool {
 	case err == nil:
 		return true
 	case strings.Contains(err.Error(), "timeout"):
+		// log instead of error, so test isn't failed
 		t.Logf("[%s] Query timeout: %s", host, err)
 		return false
+	case strings.Contains(err.Error(), "kiss of death"):
+		// log instead of error, so test isn't failed
+		t.Logf("[%s] Query kiss of death: %s", host, err)
+		return false
 	default:
+		// error, so test fails
 		t.Errorf("[%s] Query failed: %s", host, err)
 		return false
 	}
