@@ -38,13 +38,15 @@ func isNil(t *testing.T, err error) bool {
 func assertValid(t *testing.T, r *Response) {
 	err := r.Validate()
 	if err != nil {
-		t.Errorf("[%s] Query invalid: %s\n", host, err)
+		t.Errorf("[%s] Response invalid: %s\n", host, err)
 	}
 }
 
 func assertInvalid(t *testing.T, r *Response) {
 	err := r.Validate()
-	assert.NotNil(t, err)
+	if err == nil {
+		t.Errorf("[%s] Response unexpectedly valid\n", host)
+	}
 }
 
 func TestTime(t *testing.T) {
