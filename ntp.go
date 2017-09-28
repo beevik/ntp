@@ -239,7 +239,7 @@ func (r *Response) Validate() error {
 
 	// If the packet's transmit time is before the server's reference
 	// time, it's invalid.
-	if r.Time.Before(r.ReferenceTime) {
+	if r.Time.Before(r.ReferenceTime) || r.Time == ntpEpoch || r.ReferenceTime == ntpEpoch {
 		return errors.New("invalid time reported")
 	}
 
