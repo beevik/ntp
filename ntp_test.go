@@ -38,9 +38,7 @@ func isNil(t *testing.T, err error) bool {
 
 func assertValid(t *testing.T, r *Response) {
 	err := r.Validate()
-	if err != nil {
-		t.Errorf("[%s] Response invalid: %s\n", host, err)
-	}
+	_ = isNil(t, err)
 }
 
 func assertInvalid(t *testing.T, r *Response) {
