@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	host = "0.beevik-ntp.pool.ntp.org"
+	host  = "0.beevik-ntp.pool.ntp.org"
+	refID = 0x58585858 // 'XXXX'
 )
 
 func isNil(t *testing.T, err error) bool {
@@ -95,6 +96,7 @@ func TestQuery(t *testing.T) {
 	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
 	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
 	t.Logf("[%s]   RootDist: %v", host, r.RootDistance)
+	t.Logf("[%s]   MinError: %v", host, r.MinError)
 	t.Logf("[%s]       Leap: %v", host, r.Leap)
 
 	assertValid(t, r)
@@ -104,7 +106,7 @@ func TestValidate(t *testing.T) {
 	var m msg
 	var r *Response
 	m.Stratum = 1
-	m.ReferenceID = 0x58585858 // `XXXX`
+	m.ReferenceID = refID
 	m.ReferenceTime = 1 << 32
 	m.Precision = -1 // 500ms
 
@@ -243,4 +245,51 @@ func TestOffsetCalculationNegative(t *testing.T) {
 	expectedOffset := -time.Second / 2
 	offset := offset(t1, t2, t3, t4)
 	assert.Equal(t, expectedOffset, offset)
+}
+
+func TestMinError(t *testing.T) {
+	var m msg
+	var r *Response
+
+	m.Stratum = 1
+	m.ReferenceID = refID
+	m.ReferenceTime = 1 << 32
+
+	m.OriginTime = 1 << 32
+	m.ReceiveTime = 2 << 32
+	m.TransmitTime = 3 << 32
+	r = parseTime(&m, 4<<32)
+	assertValid(t, r)
+	assert.Equal(t, r.MinError, time.Duration(0))
+
+	var org, rec, xmt, dst int64
+	for org = 1; org <= 10; org++ {
+		for rec = 1; rec <= 10; rec++ {
+			for xmt = 1; xmt <= 10; xmt++ {
+				for dst = 1; dst <= 10; dst++ {
+					m.OriginTime = ntpTime(org << 32)
+					m.ReceiveTime = ntpTime(rec << 32)
+					m.TransmitTime = ntpTime(xmt << 32)
+					r = parseTime(&m, ntpTime(dst<<32))
+					if org <= dst && rec <= xmt {
+						assertValid(t, r)
+						var error0, error1 int64
+						if org >= rec {
+							error0 = org - rec
+						}
+						if xmt >= dst {
+							error1 = xmt - dst
+						}
+						var minError time.Duration
+						if error0 > error1 {
+							minError = time.Duration(error0) * time.Second
+						} else {
+							minError = time.Duration(error1) * time.Second
+						}
+						assert.Equal(t, r.MinError, minError)
+					}
+				}
+			}
+		}
+	}
 }
