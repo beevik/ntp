@@ -202,6 +202,14 @@ type Response struct {
 	// RootDistance is the single-packet estimate of the root
 	// synchronization distance.
 	RootDistance time.Duration
+
+	// When the client and server are not synchronized to the same clock,
+	// the reported timestamps may appear to violate the principle of
+	// causality. In other words, the NTP server's response may indicate
+	// that a message was received before it was sent. In such cases, the
+	// "minimum error" may be useful as a lower bound on the clock error
+	// between the two systems.
+	MinError time.Duration
 }
 
 // Validate checks if the response is valid for the purposes of time
@@ -409,6 +417,7 @@ func parseTime(m *msg, recvTime ntpTime) *Response {
 		ReferenceTime:  m.ReferenceTime.Time(),
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
+		MinError:       minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Leap:           m.getLeap(),
 	}
 
@@ -445,6 +454,24 @@ func offset(org, rec, xmt, dst ntpTime) time.Duration {
 	a := rec.Time().Sub(org.Time())
 	b := xmt.Time().Sub(dst.Time())
 	return (a + b) / time.Duration(2)
+}
+
+func minError(org, rec, xmt, dst ntpTime) time.Duration {
+	// Each NTP response contains two pairs of send/receive timestamps.
+	// When either pair indicates a "causality violation", we calculate the
+	// error as the difference in time between them. The minimum error is
+	// the greater of the two causality violations.
+	var error0, error1 ntpTime
+	if org >= rec {
+		error0 = org - rec
+	}
+	if xmt >= dst {
+		error1 = xmt - dst
+	}
+	if error0 > error1 {
+		return error0.Duration()
+	}
+	return error1.Duration()
 }
 
 func rootDistance(rtt, rootDelay, rootDisp time.Duration) time.Duration {

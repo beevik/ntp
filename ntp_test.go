@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	host = "0.beevik-ntp.pool.ntp.org"
+	host  = "0.beevik-ntp.pool.ntp.org"
+	refID = 0x58585858 // 'XXXX'
 )
 
 func isNil(t *testing.T, err error) bool {
@@ -95,6 +96,7 @@ func TestQuery(t *testing.T) {
 	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
 	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
 	t.Logf("[%s]   RootDist: %v", host, r.RootDistance)
+	t.Logf("[%s]   MinError: %v", host, r.MinError)
 	t.Logf("[%s]       Leap: %v", host, r.Leap)
 
 	assertValid(t, r)
@@ -104,7 +106,7 @@ func TestValidate(t *testing.T) {
 	var m msg
 	var r *Response
 	m.Stratum = 1
-	m.ReferenceID = 0x58585858 // `XXXX`
+	m.ReferenceID = refID
 	m.ReferenceTime = 1 << 32
 	m.Precision = -1 // 500ms
 
@@ -243,4 +245,47 @@ func TestOffsetCalculationNegative(t *testing.T) {
 	expectedOffset := -time.Second / 2
 	offset := offset(t1, t2, t3, t4)
 	assert.Equal(t, expectedOffset, offset)
+}
+
+func TestMinError(t *testing.T) {
+	start := time.Now()
+	m := &msg{
+		Stratum:       1,
+		ReferenceID:   refID,
+		ReferenceTime: toNtpTime(start),
+		OriginTime:    toNtpTime(start.Add(1 * time.Second)),
+		ReceiveTime:   toNtpTime(start.Add(2 * time.Second)),
+		TransmitTime:  toNtpTime(start.Add(3 * time.Second)),
+	}
+	r := parseTime(m, toNtpTime(start.Add(4*time.Second)))
+	assertValid(t, r)
+	assert.Equal(t, r.MinError, time.Duration(0))
+
+	for org := 1 * time.Second; org <= 10*time.Second; org += time.Second {
+		for rec := 1 * time.Second; rec <= 10*time.Second; rec += time.Second {
+			for xmt := rec; xmt <= 10*time.Second; xmt += time.Second {
+				for dst := org; dst <= 10*time.Second; dst += time.Second {
+					m.OriginTime = toNtpTime(start.Add(org))
+					m.ReceiveTime = toNtpTime(start.Add(rec))
+					m.TransmitTime = toNtpTime(start.Add(xmt))
+					r = parseTime(m, toNtpTime(start.Add(dst)))
+					assertValid(t, r)
+					var error0, error1 time.Duration
+					if org >= rec {
+						error0 = org - rec
+					}
+					if xmt >= dst {
+						error1 = xmt - dst
+					}
+					var minError time.Duration
+					if error0 > error1 {
+						minError = error0
+					} else {
+						minError = error1
+					}
+					assert.Equal(t, r.MinError, minError)
+				}
+			}
+		}
+	}
 }
