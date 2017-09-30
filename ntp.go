@@ -364,10 +364,12 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	// when the messsage was actually sent.
 	r := make([]byte, 8)
 	_, err = rand.Read(r)
-	sendTime := time.Now()
+	var sendTime time.Time
 	if err == nil {
 		xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(r))
+		sendTime = time.Now()
 	} else {
+		sendTime = time.Now()
 		xmitMsg.TransmitTime = toNtpTime(sendTime)
 	}
 
