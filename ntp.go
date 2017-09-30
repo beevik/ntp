@@ -95,6 +95,9 @@ func (t ntpTime) Time() time.Time {
 func toNtpTime(t time.Time) ntpTime {
 	nsec := uint64(t.Sub(ntpEpoch))
 	sec := nsec / nanoPerSec
+	// Round up the fractional component so that repeated conversions
+	// between time.Time and ntpTime do not yield continually decreasing
+	// results.
 	frac := (((nsec - sec*nanoPerSec) << 32) + nanoPerSec - 1) / nanoPerSec
 	return ntpTime(sec<<32 | frac)
 }

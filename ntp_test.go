@@ -287,3 +287,14 @@ func TestMinError(t *testing.T) {
 		}
 	}
 }
+
+func TestTimeConversions(t *testing.T) {
+	nowNtp := toNtpTime(time.Now())
+	now := nowNtp.Time()
+	startNow := now
+	for i := 0; i < 100; i++ {
+		nowNtp = toNtpTime(now)
+		now = nowNtp.Time()
+	}
+	assert.Equal(t, now, startNow)
+}
