@@ -375,13 +375,13 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	// when the messsage was actually sent.
 	r := make([]byte, 8)
 	_, err = rand.Read(r)
-	var sendTime ntpTime
+	var sendTime time.Time
 	if err == nil {
 		xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(r))
-		sendTime = toNtpTime(time.Now())
+		sendTime = time.Now()
 	} else {
-		xmitMsg.TransmitTime = toNtpTime(time.Now())
-		sendTime = xmitMsg.TransmitTime
+		sendTime = time.Now()
+		xmitMsg.TransmitTime = toNtpTime(sendTime)
 	}
 
 	// Transmit the query.
@@ -397,7 +397,15 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 
 	// Keep track of the time the response was received.
-	recvTime := toNtpTime(time.Now())
+	delta := time.Since(sendTime)
+	if delta < 0 {
+		// The system clock may have been set backwards since the packet was
+		// transmitted. In go 1.9 and later, time.Since ensures that a
+		// monotonic clock is used, and delta can never be less than zero.
+		// In versions before 1.9, we have to check.
+		return nil, 0, errors.New("client clock ticked backwards")
+	}
+	recvTime := toNtpTime(sendTime.Add(delta))
 
 	// Check for invalid fields.
 	if recvMsg.OriginTime != xmitMsg.TransmitTime {
@@ -409,7 +417,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 
 	// Correct the received message's origin time using the actual send
 	// time.
-	recvMsg.OriginTime = sendTime
+	recvMsg.OriginTime = toNtpTime(sendTime)
 
 	return recvMsg, recvTime, nil
 }
