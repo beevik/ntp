@@ -163,15 +163,16 @@ type QueryOptions struct {
 // A Response contains time data, some of which is returned by the NTP server
 // and some of which is calculated by the client.
 type Response struct {
-	// Time is the transmit time reported by the server.
+	// Time is the transmit time reported by the server just before it
+	// responded to the client's NTP query.
 	Time time.Time
 
-	// ClockOffset is the estimated offset of the local clock relative to
-	// the server. Add this to the system clock time to obtain an accurate
-	// time.
+	// ClockOffset is the estimated offset of the client clock relative to
+	// the server. Add this to the client's system clock time to obtain a
+	// more accurate time.
 	ClockOffset time.Duration
 
-	// RTT is the measured round-trip time dealy estimate between the client
+	// RTT is the measured round-trip-time delay estimate between the client
 	// and the server.
 	RTT time.Duration
 
@@ -193,20 +194,20 @@ type Response struct {
 	// set or corrected.
 	ReferenceTime time.Time
 
-	// RootDelay is the server's round-trip time delay to the stratum 1
-	// server containing the reference clock.
+	// RootDelay is the server's estimated aggregate round-trip-time delay to
+	// the stratum 1 server.
 	RootDelay time.Duration
 
-	// RootDispersion is the server's maximum measurement error relative to
-	// the stratum 1 server containing the reference clock.
+	// RootDispersion is the server's estimated maximum measurement error
+	// relative to the stratum 1 server.
 	RootDispersion time.Duration
 
 	// RootDistance is an estimate of the total synchronization distance
-	// between the client and the stratum 1 server containing the reference
-	// clock.
+	// between the client and the stratum 1 server.
 	RootDistance time.Duration
 
-	// Leap is the leap-second indicator.
+	// Leap indicates whether a leap second should be added or removed from
+	// the current month's last minute.
 	Leap LeapIndicator
 
 	// MinError is a lower bound on the error between the client and server
