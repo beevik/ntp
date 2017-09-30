@@ -163,22 +163,23 @@ type Response struct {
 	// Time is the transmit time reported by the server.
 	Time time.Time
 
-	// RTT is the measured round-trip time estimate between the client and
-	// the server.
-	RTT time.Duration
-
 	// ClockOffset is the estimated offset of the local clock relative to
-	// the server.
+	// the server. Add this to the system clock time to obtain an accurate
+	// time.
 	ClockOffset time.Duration
 
-	// Poll is the maximum interval between successive messages.
-	Poll time.Duration
+	// RTT is the measured round-trip time dealy estimate between the client
+	// and the server.
+	RTT time.Duration
 
 	// Precision is the reported precision of the server's clock.
 	Precision time.Duration
 
-	// Stratum is the "stratum level" of the server, where 1 is a primary
-	// server and 2-15 are secondary servers.
+	// Stratum is the "stratum level" of the server. The smaller the number,
+	// the closer the server is to the reference clock. Stratum 1 servers are
+	// attached directly to the reference clock. A stratum value of 0
+	// indicates the "kiss of death," which typically occurs when the client
+	// issues too many requests to the server in a short period of time.
 	Stratum uint8
 
 	// ReferenceID is a 32-bit identifier identifying the server or
@@ -189,27 +190,33 @@ type Response struct {
 	// set or corrected.
 	ReferenceTime time.Time
 
-	// RootDelay is the server's round-trip time to the reference clock.
+	// RootDelay is the server's round-trip time delay to the stratum 1
+	// server containing the reference clock.
 	RootDelay time.Duration
 
-	// RootDispersion is the server's total dispersion to the reference
-	// clock.
+	// RootDispersion is the server's maximum measurement error relative to
+	// the stratum 1 server containing the reference clock.
 	RootDispersion time.Duration
+
+	// RootDistance is an estimate of the total synchronization distance
+	// between the client and the stratum 1 server containing the reference
+	// clock.
+	RootDistance time.Duration
 
 	// Leap is the leap-second indicator.
 	Leap LeapIndicator
 
-	// RootDistance is the single-packet estimate of the root
-	// synchronization distance.
-	RootDistance time.Duration
-
-	// When the client and server are not synchronized to the same clock,
-	// the reported timestamps may appear to violate the principle of
+	// MinError is a lower bound on the error between the client and server
+	// clocks. When the client and server are not synchronized to the same
+	// clock, the reported timestamps may appear to violate the principle of
 	// causality. In other words, the NTP server's response may indicate
 	// that a message was received before it was sent. In such cases, the
-	// "minimum error" may be useful as a lower bound on the clock error
-	// between the two systems.
+	// minimum error may be useful.
 	MinError time.Duration
+
+	// Poll is the maximum interval between successive NTP polling messages.
+	// It is not relevant for simple NTP clients like this one.
+	Poll time.Duration
 }
 
 // Validate checks if the response is valid for the purposes of time
@@ -408,17 +415,17 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 func parseTime(m *msg, recvTime ntpTime) *Response {
 	r := &Response{
 		Time:           m.TransmitTime.Time(),
-		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		Poll:           toInterval(m.Poll),
+		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Precision:      toInterval(m.Precision),
 		Stratum:        m.Stratum,
 		ReferenceID:    m.ReferenceID,
 		ReferenceTime:  m.ReferenceTime.Time(),
 		RootDelay:      m.RootDelay.Duration(),
 		RootDispersion: m.RootDispersion.Duration(),
-		MinError:       minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Leap:           m.getLeap(),
+		MinError:       minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
+		Poll:           toInterval(m.Poll),
 	}
 
 	// Calculate values depending on other calculated values
