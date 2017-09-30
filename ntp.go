@@ -217,7 +217,10 @@ type Response struct {
 func (r *Response) Validate() error {
 	// Check for illegal stratum values.
 	if r.Stratum == 0 {
-		return errors.New("kiss of death received")
+		if kodErr, existed := kodErrorMap[r.ReferenceID]; existed {
+			return kodErr
+		}
+		return errors.New("unknown kiss of death received")
 	}
 	if r.Stratum >= MaxStratum {
 		return errors.New("invalid stratum received")
