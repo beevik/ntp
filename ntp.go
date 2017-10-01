@@ -20,11 +20,6 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-const (
-	// MaxStratum is the largest allowable NTP stratum value.
-	MaxStratum = 16
-)
-
 // The LeapIndicator is used to warn if a leap second should be inserted
 // or deleted in the last minute of the current month.
 type LeapIndicator uint8
@@ -47,6 +42,7 @@ const (
 const (
 	defaultNtpVersion = 4
 	nanoPerSec        = 1000000000
+	maxStratum        = 16
 	defaultTimeout    = 5 * time.Second
 	maxPollInterval   = (1 << 17) * time.Second
 	minDispersion     = 10 * time.Millisecond
@@ -230,7 +226,7 @@ func (r *Response) Validate() error {
 	if r.Stratum == 0 {
 		return errors.New("kiss of death received")
 	}
-	if r.Stratum >= MaxStratum {
+	if r.Stratum >= maxStratum {
 		return errors.New("invalid stratum received")
 	}
 
