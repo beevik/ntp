@@ -45,7 +45,6 @@ const (
 	maxStratum        = 16
 	defaultTimeout    = 5 * time.Second
 	maxPollInterval   = (1 << 17) * time.Second
-	minDispersion     = 10 * time.Millisecond
 	maxDispersion     = 16 * time.Second
 )
 
@@ -503,9 +502,6 @@ func rootDistance(rtt, rootDelay, rootDisp time.Duration) time.Duration {
 	// For an SNTP client which sends only a single packet, most of these
 	// terms are irrelevant and become 0.
 	totalDelay := rtt + rootDelay
-	if totalDelay < minDispersion {
-		totalDelay = minDispersion
-	}
 	return totalDelay/2 + rootDisp
 }
 
