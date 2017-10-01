@@ -151,7 +151,7 @@ type QueryOptions struct {
 	Timeout      time.Duration // defaults to 5 seconds
 	Version      int           // NTP protocol version, defaults to 4
 	LocalAddress string        // IP address to use for the client address
-	Port         int           // NTP Server port, defaults to 123
+	Port         int           // Server port, defaults to 123
 	TTL          int           // IP TTL to use, defaults to system default
 }
 
@@ -251,8 +251,9 @@ func (r *Response) Validate() error {
 		return errors.New("invalid dispersion")
 	}
 
-	// If the packet's transmit time is before the server's reference
-	// time, it's invalid.
+	// If the server's transmit time is before its referencetime, or if
+	// either of the ntpTimes reported by the server are 0, the response is
+	// invalid.
 	if r.Time.Before(r.ReferenceTime) || r.Time == ntpEpoch || r.ReferenceTime == ntpEpoch {
 		return errors.New("invalid time reported")
 	}
