@@ -281,6 +281,8 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 
 // TimeV returns the current time using information from a remote NTP server.
 // On error, it returns the local system time. The version may be 2, 3, or 4.
+//
+// This function is deprecated. Please use Time or QueryWithOptions.
 func TimeV(host string, version int) (time.Time, error) {
 	m, recvTime, err := getTime(host, QueryOptions{Version: version})
 	if err != nil {
