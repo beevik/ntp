@@ -314,7 +314,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		opt.Version = defaultNtpVersion
 	}
 	if opt.Version < 2 || opt.Version > 4 {
-		panic("ntp: invalid version number")
+		return nil, 0, errors.New("invalid protocol version requested")
 	}
 
 	// Resolve the remote NTP server address.
@@ -415,9 +415,6 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 	if recvMsg.getMode() != server {
 		return nil, 0, errors.New("invalid mode in response")
-	}
-	if recvMsg.getVersion() != opt.Version {
-		return nil, 0, errors.New("invalid protocol version in response")
 	}
 	if recvMsg.TransmitTime == ntpTime(0) {
 		return nil, 0, errors.New("invalid transmit time in response")
