@@ -140,6 +140,16 @@ func (m *msg) setLeap(li LeapIndicator) {
 	m.LiVnMode = (m.LiVnMode & 0x3f) | uint8(li)<<6
 }
 
+// getVersion returns the version value in the message.
+func (m *msg) getVersion() int {
+	return int((m.LiVnMode >> 3) & 0x07)
+}
+
+// getMode returns the mode value in the message.
+func (m *msg) getMode() mode {
+	return mode(m.LiVnMode & 0x07)
+}
+
 // getLeap returns the leap indicator on the message.
 func (m *msg) getLeap() LeapIndicator {
 	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
@@ -221,14 +231,6 @@ type Response struct {
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
 func (r *Response) Validate() error {
-	// Check for illegal stratum values.
-	if r.Stratum == 0 {
-		return errors.New("kiss of death received")
-	}
-	if r.Stratum >= maxStratum {
-		return errors.New("invalid stratum received")
-	}
-
 	// Handle invalid leap second indicator.
 	if r.Leap == LeapNotInSync {
 		return errors.New("invalid leap second")
@@ -251,10 +253,9 @@ func (r *Response) Validate() error {
 		return errors.New("invalid dispersion")
 	}
 
-	// If the server's transmit time is before its referencetime, or if
-	// either of the ntpTimes reported by the server are 0, the response is
-	// invalid.
-	if r.Time.Before(r.ReferenceTime) || r.Time == ntpEpoch || r.ReferenceTime == ntpEpoch {
+	// If the server's transmit time is before its reference time, the
+	// response is invalid.
+	if r.Time.Before(r.ReferenceTime) {
 		return errors.New("invalid time reported")
 	}
 
@@ -406,6 +407,21 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	recvTime := toNtpTime(sendTime.Add(delta))
 
 	// Check for invalid fields.
+	if recvMsg.Stratum == 0 {
+		return nil, 0, errors.New("kiss of death received")
+	}
+	if recvMsg.Stratum >= maxStratum {
+		return nil, 0, errors.New("invalid stratum in response")
+	}
+	if recvMsg.getMode() != server {
+		return nil, 0, errors.New("invalid mode in response")
+	}
+	if recvMsg.getVersion() != opt.Version {
+		return nil, 0, errors.New("invalid protocol version in response")
+	}
+	if recvMsg.TransmitTime == ntpTime(0) {
+		return nil, 0, errors.New("invalid transmit time in response")
+	}
 	if recvMsg.OriginTime != xmitMsg.TransmitTime {
 		return nil, 0, errors.New("server response mismatch")
 	}
