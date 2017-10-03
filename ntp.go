@@ -231,6 +231,14 @@ type Response struct {
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
 func (r *Response) Validate() error {
+	// Handle invalid stratum values.
+	if r.Stratum == 0 {
+		return errors.New("kiss of death received")
+	}
+	if r.Stratum >= maxStratum {
+		return errors.New("invalid stratum in response")
+	}
+
 	// Handle invalid leap second indicator.
 	if r.Leap == LeapNotInSync {
 		return errors.New("invalid leap second")
@@ -407,12 +415,6 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	recvTime := toNtpTime(sendTime.Add(delta))
 
 	// Check for invalid fields.
-	if recvMsg.Stratum == 0 {
-		return nil, 0, errors.New("kiss of death received")
-	}
-	if recvMsg.Stratum >= maxStratum {
-		return nil, 0, errors.New("invalid stratum in response")
-	}
 	if recvMsg.getMode() != server {
 		return nil, 0, errors.New("invalid mode in response")
 	}
