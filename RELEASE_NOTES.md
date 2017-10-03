@@ -1,3 +1,23 @@
+Release v0.1.1
+==============
+
+**Breaking changes**
+
+* Removed the `MaxStratum` constant.
+
+**Deprecations**
+
+* Officially deprecated the `TimeV` function.
+
+**Internal changes**
+
+* Removed `minDispersion` from the `RootDistance` calculation, since the value
+  was arbitrary.
+* Moved some validation into main code path so that invalid `TransmitTime` and
+  `mode` responses trigger an error even when `Response.Validate` is not
+  called.
+
+
 Release v0.1.0
 ==============
 
