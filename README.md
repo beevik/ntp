@@ -8,36 +8,33 @@ The ntp package is an implementation of a Simple NTP (SNTP) client based on
 [RFC5905](https://tools.ietf.org/html/rfc5905). It allows you to connect to
 a remote NTP server and request the current time.
 
+
+## Querying the current time
+
 If all you care about is the current time according to a remote NTP server,
 simply use the `Time` function:
 ```go
 time, err := ntp.Time("0.beevik-ntp.pool.ntp.org")
 ```
 
+
+## Querying time metadata
+
 To obtain the current time as well as some additional metadata about the time,
-use the `Query` function instead:
+use the `Query` function:
 ```go
 response, err := ntp.Query("0.beevik-ntp.pool.ntp.org")
 ```
 
-If you want to override the default behavior of the `Query` function, you
-can do so with the `QueryWithOptions` function:
+Alternatively, if you want to override the default behavior of the `Query`
+function, use the `QueryWithOptions` function:
 ```go
 options := ntp.QueryOptions{ Timeout: 30*time.Second, TTL: 5 }
 response, err := ntp.QueryWithOptions("0.beevik-ntp.pool.ntp.org", options)
 ```
 
-To validate a `Query` response in order to determine whether it's suitable
-for synchronization purposes, use the `Validate` method:
-```go
-err := response.Validate()
-if err == nil {
-    // response data is suitable for synchronization purposes
-}
-```
-
-The `Response` structure returned by the `Query` functions contains useful
-metadata about the time query, including:
+The `Response` metadata structure returned by `Query` includes the following
+useful information:
 * `Time`: The time the server transmitted its response, according to its own clock.
 * `ClockOffset`: The estimated offset of the local system clock relative to the server's clock. You may apply this offset to any system clock reading once the query is complete.
 * `RTT`: An estimate of the round-trip-time delay between the client and the server.
@@ -52,6 +49,22 @@ metadata about the time query, including:
 * `MinError`: A lower bound on the clock error between the client and the server.
 * `Poll`: The maximum polling interval between successive messages to the server.
 
-To use the NTP pool in your application, please request your own
-[vendor zone](http://www.pool.ntp.org/en/vendors.html).  Avoid using 
-the `[number].pool.ntp.org` zone names in your applications.
+## Validating query responses
+
+To validate a `Query` response, use the response's `Validate` method:
+```go
+err := response.Validate()
+if err == nil {
+    // response data is suitable for synchronization purposes
+}
+```
+The `Validate` method performs additional sanity checks on the response to
+see if it is suitable for time synchronization purposes.
+
+## Using the NTP pool
+
+The NTP pool is a shared resource used by millions of people across the globe.
+To prevent it from becoming overloaded, please avoid querying the standard
+`pool.ntp.org` zone names in your applications.  Instead, consider requesting
+your own [vendor zone](http://www.pool.ntp.org/en/vendors.html) or [joining
+the pool](http://www.pool.ntp.org/join.html).
