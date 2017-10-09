@@ -47,6 +47,7 @@ useful information:
 * `RootDistance`: An estimate of the root synchronization distance between the client and the stratum 1 server.
 * `Leap`: The leap second indicator, indicating whether a second should be added to or removed from the current month's last minute.
 * `MinError`: A lower bound on the clock error between the client and the server.
+* `KissCode`: A 4-character string describing the reason for a "kiss of death" response (stratum=0).
 * `Poll`: The maximum polling interval between successive messages to the server.
 
 ## Validating query responses

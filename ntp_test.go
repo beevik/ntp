@@ -96,8 +96,16 @@ func TestQuery(t *testing.T) {
 	t.Logf("[%s]   RootDist: %v", host, r.RootDistance)
 	t.Logf("[%s]   MinError: %v", host, r.MinError)
 	t.Logf("[%s]       Leap: %v", host, r.Leap)
+	t.Logf("[%s]   KissCode: %v", host, stringOrEmpty(r.KissCode))
 
 	assertValid(t, r)
+}
+
+func stringOrEmpty(s string) string {
+	if s == "" {
+		return "<empty>"
+	}
+	return s
 }
 
 func TestValidate(t *testing.T) {
@@ -297,4 +305,29 @@ func TestTimeConversions(t *testing.T) {
 		now = nowNtp.Time()
 	}
 	assert.Equal(t, now, startNow)
+}
+
+func TestKissCode(t *testing.T) {
+	codes := []struct {
+		id  uint32
+		str string
+	}{
+		{0x41435354, "ACST"},
+		{0x41555448, "AUTH"},
+		{0x4155544f, "AUTO"},
+		{0x42435354, "BCST"},
+		{0x43525950, "CRYP"},
+		{0x44454e59, "DENY"},
+		{0x44524f50, "DROP"},
+		{0x52535452, "RSTR"},
+		{0x494e4954, "INIT"},
+		{0x4d435354, "MCST"},
+		{0x4e4b4559, "NKEY"},
+		{0x52415445, "RATE"},
+		{0x524d4f54, "RMOT"},
+		{0x53544550, "STEP"},
+	}
+	for _, c := range codes {
+		assert.Equal(t, kissCode(c.id), c.str)
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -223,6 +224,11 @@ type Response struct {
 	// minimum error may be useful.
 	MinError time.Duration
 
+	// KissCode is a 4-character string describing the reason for a
+	// "kiss of death" response (stratum = 0). For a list of standard kiss
+	// codes, see https://tools.ietf.org/html/rfc5905#section-7.4.
+	KissCode string
+
 	// Poll is the maximum interval between successive NTP polling messages.
 	// It is not relevant for simple NTP clients like this one.
 	Poll time.Duration
@@ -233,7 +239,7 @@ type Response struct {
 func (r *Response) Validate() error {
 	// Handle invalid stratum values.
 	if r.Stratum == 0 {
-		return errors.New("kiss of death received")
+		return fmt.Errorf("kiss of death received: %s", r.KissCode)
 	}
 	if r.Stratum >= maxStratum {
 		return errors.New("invalid stratum in response")
@@ -457,6 +463,12 @@ func parseTime(m *msg, recvTime ntpTime) *Response {
 	// Calculate values depending on other calculated values
 	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
 
+	// If a kiss of death was received, interpret the reference ID as
+	// a kiss code.
+	if r.Stratum == 0 {
+		r.KissCode = kissCode(r.ReferenceID)
+	}
+
 	return r
 }
 
@@ -533,4 +545,14 @@ func toInterval(t int8) time.Duration {
 	default:
 		return time.Second
 	}
+}
+
+func kissCode(id uint32) string {
+	b := []byte{
+		byte(id >> 24),
+		byte(id >> 16),
+		byte(id >> 8),
+		byte(id),
+	}
+	return string(b)
 }
