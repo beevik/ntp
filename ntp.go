@@ -67,6 +67,69 @@ const (
 	reservedPrivate
 )
 
+// The kissErrors contains KOD (Kiss-o-Death) Error type.
+// See https://tools.ietf.org/html/rfc5905#section-7.4 for more detail
+var (
+	// ErrorACST the association belongs to a unicast server
+	ErrorACST = errors.New("the association belongs to a unicast server")
+
+	// ErrorAUTH server authentication failed
+	ErrorAUTH = errors.New("server authentication failed")
+
+	// ErrorAUTO autokey sequence failed
+	ErrorAUTO = errors.New("autokey sequence failed")
+
+	// ErrorBCST the association belongs to a broadcast server
+	ErrorBCST = errors.New("the association belongs to a broadcast server")
+
+	// ErrorCRYP cryptographic authentication or identification failed
+	ErrorCRYP = errors.New("cryptographic authentication or identification failed")
+
+	// ErrorDENY access denied by remote server
+	ErrorDENY = errors.New("access denied by remote server")
+
+	// ErrorDROP lost peer in symmetric mode
+	ErrorDROP = errors.New("lost peer in symmetric mode")
+
+	// ErrorRSTR access denied due to local policy
+	ErrorRSTR = errors.New("access denied due to local policy")
+
+	// ErrorINIT the association has not yet synchronized for the first time
+	ErrorINIT = errors.New("the association has not yet synchronized for the first time")
+
+	// ErrorMCST the association belongs to a dynamically discovered server
+	ErrorMCST = errors.New("the association belongs to a dynamically discovered server")
+
+	// ErrorNKEY no key found
+	ErrorNKEY = errors.New("no key found")
+
+	// ErrorRATE rate exceeded
+	ErrorRATE = errors.New("rate exceeded")
+
+	// ErrorRMOT alteration of association from a remote host running ntpdc
+	ErrorRMOT = errors.New("alteration of association from a remote host running ntpdc")
+
+	// ErrorSTEP a step change in system time has occurred, but the association has not yet resynchronized
+	ErrorSTEP = errors.New("a step change in system time has occurred, but the association has not yet resynchronized")
+
+	kissErrors = map[uint32]error{
+		kissCode("ACST"): ErrorACST,
+		kissCode("AUTH"): ErrorAUTH,
+		kissCode("AUTO"): ErrorAUTO,
+		kissCode("BCST"): ErrorBCST,
+		kissCode("CRYP"): ErrorCRYP,
+		kissCode("DENY"): ErrorDENY,
+		kissCode("DROP"): ErrorDROP,
+		kissCode("RSTR"): ErrorRSTR,
+		kissCode("INIT"): ErrorINIT,
+		kissCode("MCST"): ErrorMCST,
+		kissCode("NKEY"): ErrorNKEY,
+		kissCode("RATE"): ErrorRATE,
+		kissCode("RMOT"): ErrorRMOT,
+		kissCode("STEP"): ErrorSTEP,
+	}
+)
+
 // An ntpTime is a 64-bit fixed-point (Q32.32) representation of the number of
 // seconds elapsed.
 type ntpTime uint64
@@ -233,7 +296,10 @@ type Response struct {
 func (r *Response) Validate() error {
 	// Handle invalid stratum values.
 	if r.Stratum == 0 {
-		return errors.New("kiss of death received")
+		if err, ok := kissErrors[r.ReferenceID]; ok {
+			return err
+		}
+		return errors.New("unknown kiss of death received")
 	}
 	if r.Stratum >= maxStratum {
 		return errors.New("invalid stratum in response")
@@ -533,4 +599,8 @@ func toInterval(t int8) time.Duration {
 	default:
 		return time.Second
 	}
+}
+
+func kissCode(s string) uint32 {
+	return uint32(s[0])<<24 + uint32(s[1])<<16 + uint32(s[2])<<8 + uint32(s[3])
 }
