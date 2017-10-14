@@ -326,6 +326,10 @@ func TestKissCode(t *testing.T) {
 		{0x52415445, "RATE"},
 		{0x524d4f54, "RMOT"},
 		{0x53544550, "STEP"},
+		{0x01010101, ""},
+		{0xfefefefe, ""},
+		{0x01544450, ""},
+		{0x41544401, ""},
 	}
 	for _, c := range codes {
 		assert.Equal(t, kissCode(c.id), c.str)
