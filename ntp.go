@@ -548,11 +548,18 @@ func toInterval(t int8) time.Duration {
 }
 
 func kissCode(id uint32) string {
+	isPrintable := func(ch byte) bool { return ch >= 32 && ch <= 126 }
+
 	b := []byte{
 		byte(id >> 24),
 		byte(id >> 16),
 		byte(id >> 8),
 		byte(id),
+	}
+	for _, ch := range b {
+		if !isPrintable(ch) {
+			return ""
+		}
 	}
 	return string(b)
 }
