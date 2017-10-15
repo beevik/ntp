@@ -36,10 +36,10 @@ response, err := ntp.QueryWithOptions("0.beevik-ntp.pool.ntp.org", options)
 The `Response` metadata structure returned by `Query` includes the following
 useful information:
 * `Time`: The time the server transmitted its response, according to its own clock.
-* `ClockOffset`: The estimated offset of the local system clock relative to the server's clock. You may apply this offset to any system clock reading once the query is complete.
+* `ClockOffset`: The estimated offset of the local system clock relative to the server's clock. For a more accurate time reading, you may add this offset to any subsequent system clock reading.
 * `RTT`: An estimate of the round-trip-time delay between the client and the server.
 * `Precision`: The precision of the server's clock reading.
-* `Stratum`: The stratum level of the server, which indicates the number of hops from the server to the reference clock.
+* `Stratum`: The stratum level of the server, which indicates the number of hops from the server to the reference clock. If it is zero, the server has given you the "kiss of death".
 * `ReferenceID`: A unique identifier for the consulted reference clock.
 * `ReferenceTime`: The time at which the server last updated its local clock setting.
 * `RootDelay`: The server's aggregate round-trip-time delay to the stratum 1 server.
@@ -52,15 +52,15 @@ useful information:
 
 ## Validating query responses
 
-To validate a `Query` response, use the response's `Validate` method:
+The `Response` structure's `Validate` method performs additional sanity checks
+to determine whether the response is suitable for time synchronization
+purposes.
 ```go
 err := response.Validate()
 if err == nil {
     // response data is suitable for synchronization purposes
 }
 ```
-The `Validate` method performs additional sanity checks on the response to
-see if it is suitable for time synchronization purposes.
 
 ## Using the NTP pool
 
