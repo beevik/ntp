@@ -164,6 +164,7 @@ type QueryOptions struct {
 	LocalAddress string        // IP address to use for the client address
 	Port         int           // Server port, defaults to 123
 	TTL          int           // IP TTL to use, defaults to system default
+	Protocol     string        // Protocol to use, defaults to udp
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -331,8 +332,12 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		return nil, 0, errors.New("invalid protocol version requested")
 	}
 
+	if opt.Protocol == "" {
+		opt.Protocol = "udp"
+	}
+
 	// Resolve the remote NTP server address.
-	raddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, "123"))
+	raddr, err := net.ResolveUDPAddr(opt.Protocol, net.JoinHostPort(host, "123"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -340,7 +345,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	// Resolve the local address if specified as an option.
 	var laddr *net.UDPAddr
 	if opt.LocalAddress != "" {
-		laddr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(opt.LocalAddress, "0"))
+		laddr, err = net.ResolveUDPAddr(opt.Protocol, net.JoinHostPort(opt.LocalAddress, "0"))
 		if err != nil {
 			return nil, 0, err
 		}
@@ -352,7 +357,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 
 	// Prepare a "connection" to the remote server.
-	con, err := net.DialUDP("udp", laddr, raddr)
+	con, err := net.DialUDP(opt.Protocol, laddr, raddr)
 	if err != nil {
 		return nil, 0, err
 	}
