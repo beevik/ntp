@@ -532,6 +532,7 @@ type QueryOptions struct {
 	Port         int           // Server port, defaults to 123
 	TTL          int           // IP TTL to use, defaults to system default
 	Protocol     string        // Protocol to use, defaults to udp
+	NTS          bool          // Use NTS?
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -663,13 +664,15 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 }
 
 func QueryNTS(host string, key Key, cookie []byte) (*Response, error) {
-	return QueryNTSOptions(host, QueryOptions{}, key, cookie)
+	return QueryNTSOptions(host, QueryOptions{NTS: true}, key, cookie)
 }
 
-// QueryWithNTS attempts to query a NTS server after having done
+// QueryNTSOptions attempts to query a NTS server after having done
 // initial NTS Key Exchange using key Key and a cookie from the cookie
 // jar we got from the NTS-KE server.
 func QueryNTSOptions(host string, opt QueryOptions, key Key, cookie []byte) (*Response, error) {
+	opt.NTS = true
+
 	m, now, err := getTime(host, opt, key, cookie)
 	if err != nil {
 		return nil, err
@@ -768,24 +771,26 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 	xmitmsg.Hdr.Mode = client
 	xmitmsg.Hdr.LeapIndicator = LeapNotInSync
 
-	// Generate and remember a unique identifier for our packet
-	var uqext UniqueIdentifier
+	if opt.NTS {
+		// Generate and remember a unique identifier for our packet
+		var uqext UniqueIdentifier
 
-	_, err = uqext.Generate()
-	if err != nil {
-		return nil, 0, err
+		_, err = uqext.Generate()
+		if err != nil {
+			return nil, 0, err
+		}
+		xmitmsg.AddExt(uqext)
+
+		var c Cookie
+
+		c.Cookie = cookie
+		xmitmsg.AddExt(c)
+
+		var auth Authenticator
+
+		auth.Key = key
+		xmitmsg.AddExt(auth)
 	}
-	xmitmsg.AddExt(uqext)
-
-	var c Cookie
-
-	c.Cookie = cookie
-	xmitmsg.AddExt(c)
-
-	var auth Authenticator
-
-	auth.Key = key
-	xmitmsg.AddExt(auth)
 
 	xmitTime := time.Now()
 
