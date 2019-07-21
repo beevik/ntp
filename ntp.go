@@ -11,6 +11,7 @@
 package ntp
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/secure-io/siv-go"
 	"golang.org/x/net/ipv4"
 )
 
@@ -52,6 +54,14 @@ const (
 // Internal variables
 var (
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+)
+
+// NTS Extension Field Types taken from https://github.com/Netnod/nts-poc-python
+const (
+	ExtUniqueIdentifier  uint16 = 0x104
+	ExtCookie            uint16 = 0x204
+	ExtCookiePlaceholder uint16 = 0x304
+	ExtAuthenticator     uint16 = 0x404
 )
 
 type mode uint8
@@ -111,6 +121,127 @@ func (t ntpTimeShort) Duration() time.Duration {
 	return time.Duration(sec + frac)
 }
 
+type ntpmsg struct {
+	Hdr       NtpHdr
+	Extension []ExtensionField
+}
+
+type NtpMsg struct {
+	Hdr       NtpHdr
+	Extension []ExtensionField
+}
+
+func (n NtpMsg) String() {
+	fmt.Printf(n.Hdr.string())
+	for _, ef := range n.Extension {
+		fmt.Printf(ef.string())
+	}
+}
+
+// Pack packs a Msg: it is converted to to wire format.
+func (m NtpMsg) Pack() (buf *bytes.Buffer, err error) {
+	buf = new(bytes.Buffer)
+
+	err = m.Hdr.pack(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ef := range m.Extension {
+		err = ef.pack(buf)
+		if err != nil {
+			return nil, err
+
+		}
+	}
+
+	return buf, nil
+}
+
+func (n *NtpMsg) AddExt(ext ExtensionField) {
+	n.Extension = append(n.Extension, ext)
+}
+
+type NtpHdr struct {
+	Version        int
+	Mode           mode
+	LeapIndicator  LeapIndicator
+	Stratum        uint8
+	Poll           int8
+	Precision      int8
+	RootDelay      time.Time
+	RootDispersion time.Time
+	ReferenceID    uint32
+	ReferenceTime  time.Time
+	OriginTime     time.Time
+	ReceiveTime    time.Time
+	TransmitTime   time.Time
+}
+
+func (nh NtpHdr) string() string {
+	return fmt.Sprintf("Version %v\n"+
+		"Mode: %v\n"+
+		"Leap: %v\n"+
+		"Stratum: %v\n"+
+		"Poll: %v\n"+
+		"Precision: %v\n"+
+		"RootDelay: %v\n"+
+		"RootDispersion: %v\n"+
+		"ReferenceID: %v\n"+
+		"ReferenceTime: %v\n"+
+		"OriginTime: %v\n"+
+		"ReceiveTime: %v\n"+
+		"TransmitTime: %v\n",
+		nh.Version,
+		nh.Mode,
+		nh.LeapIndicator,
+		nh.Stratum,
+		nh.Poll,
+		nh.Precision,
+		nh.RootDelay,
+		nh.RootDispersion,
+		nh.ReferenceID,
+		nh.ReferenceTime,
+		nh.OriginTime,
+		nh.ReceiveTime,
+		nh.TransmitTime,
+	)
+}
+
+func (nh NtpHdr) pack(buf *bytes.Buffer) error {
+	var wire msg
+
+	wire.setVersion(nh.Version)
+	wire.setMode(nh.Mode)
+	wire.setLeap(nh.LeapIndicator)
+	wire.Stratum = nh.Stratum
+	wire.Poll = nh.Poll
+	wire.Precision = nh.Precision
+	// wire.RootDelay = ToNtpShortTime()
+	// wire.RootDispersion = ToNtpShortTime()
+	// refbuf := make([]byte, 4)
+	// binary.BigEndian.PutUint32(refbuf, nh.ReferenceID)
+	// for i, b := range refbuf {
+	// 	wire.ReferenceID[i] = b
+	// }
+
+	wire.OriginTime = toNtpTime(nh.OriginTime)
+	wire.ReceiveTime = toNtpTime(nh.ReceiveTime)
+
+	// Make transmittime a sort of anti-spoofing cookie
+	bits := make([]byte, 8)
+	_, err := rand.Read(bits)
+
+	wire.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
+
+	err = binary.Write(buf, binary.BigEndian, wire)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
 // msg is an internal representation of an NTP packet.
 type msg struct {
 	LiVnMode       uint8 // Leap Indicator (2) + Version (3) + Mode (3)
@@ -154,6 +285,242 @@ func (m *msg) getMode() mode {
 // getLeap returns the leap indicator on the message.
 func (m *msg) getLeap() LeapIndicator {
 	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
+}
+
+type ExtHdr struct {
+	Type   uint16
+	Length uint16
+}
+
+func (h ExtHdr) pack(buf *bytes.Buffer) error {
+	err := binary.Write(buf, binary.BigEndian, h)
+	return err
+}
+
+func (h ExtHdr) Header() ExtHdr { return h }
+
+func (h ExtHdr) string() string {
+	return fmt.Sprintf("  Extension field type: %v, len: %v\n", h.Type, h.Length)
+}
+
+type ExtensionField interface {
+	Header() ExtHdr
+
+	string() string
+	pack(*bytes.Buffer) error
+}
+
+type UniqueIdentifier struct {
+	ExtHdr
+	Id []byte
+}
+
+func (u UniqueIdentifier) string() string {
+	return fmt.Sprintf("-- UniqueIdentifier EF\n"+
+		"  Id: %x\n", u.Id)
+}
+
+func (u UniqueIdentifier) pack(buf *bytes.Buffer) error {
+	value := new(bytes.Buffer)
+	err := binary.Write(value, binary.BigEndian, u.Id)
+	if err != nil {
+		return err
+	}
+	if value.Len() < 32 {
+		return fmt.Errorf("UniqueIdentifier.Id < 32 bytes")
+	}
+
+	padding := make([]byte, (4-value.Len())%4)
+
+	u.ExtHdr.Type = ExtUniqueIdentifier
+	u.ExtHdr.Length = 4 + uint16(value.Len()) + uint16(len(padding))
+	err = u.ExtHdr.pack(buf)
+	if err != nil {
+		return err
+	}
+
+	_, err = buf.ReadFrom(value)
+	if err != nil {
+		return err
+	}
+
+	_, err = buf.Write(padding)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *UniqueIdentifier) Generate() ([]byte, error) {
+	id := make([]byte, 32)
+
+	_, err := rand.Read(id)
+	if err != nil {
+		return nil, err
+	}
+
+	u.Id = id
+
+	return id, nil
+}
+
+type Cookie struct {
+	ExtHdr
+	Cookie []byte
+}
+
+func (c Cookie) string() string {
+	return fmt.Sprintf("-- Cookie EF\n"+
+		"  %x\n", c.Cookie)
+}
+
+func (c Cookie) pack(buf *bytes.Buffer) error {
+	value := new(bytes.Buffer)
+	origlen, err := value.Write(c.Cookie)
+	if err != nil {
+		return err
+	}
+
+	// Round up to nearest word boundary
+
+	newlen := (origlen + 3) & ^3
+
+	padding := make([]byte, newlen-origlen)
+
+	c.ExtHdr.Type = ExtCookie
+	c.ExtHdr.Length = 4 + uint16(newlen)
+	err = c.ExtHdr.pack(buf)
+	if err != nil {
+		return err
+	}
+
+	_, err = buf.ReadFrom(value)
+	if err != nil {
+		return err
+	}
+	_, err = buf.Write(padding)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type CookiePlaceholder struct {
+	ExtHdr
+	Cookie []byte
+}
+
+type Key []byte
+
+type Authenticator struct {
+	ExtHdr
+	NonceLen      uint16
+	CipherTextLen uint16
+	Nonce         []byte
+	CipherText    []byte
+	Key           Key
+}
+
+func (a Authenticator) string() string {
+	return fmt.Sprintf("-- Authenticator EF\n"+
+		"  NonceLen: %v\n"+
+		"  CipherTextLen: %v\n"+
+		"  Nonce: %v\n"+
+		"  Ciphertext: %x\n"+
+		"  Key: %x\n",
+		a.NonceLen,
+		a.CipherTextLen,
+		a.Nonce,
+		a.CipherText,
+		a.Key,
+	)
+}
+
+func (a Authenticator) pack(buf *bytes.Buffer) error {
+	aessiv, err := siv.NewCMAC(a.Key)
+	if err != nil {
+		return err
+	}
+
+	bits := make([]byte, 16)
+	_, err = rand.Read(bits)
+	if err != nil {
+		return err
+	}
+
+	a.Nonce = bits
+
+	a.CipherText = aessiv.Seal(nil, a.Nonce, nil, buf.Bytes())
+	a.CipherTextLen = uint16(len(a.CipherText))
+
+	noncebuf := new(bytes.Buffer)
+	err = binary.Write(noncebuf, binary.BigEndian, a.Nonce)
+	if err != nil {
+		return err
+	}
+	a.NonceLen = uint16(noncebuf.Len())
+
+	cipherbuf := new(bytes.Buffer)
+	err = binary.Write(cipherbuf, binary.BigEndian, a.CipherText)
+	if err != nil {
+		return err
+	}
+	a.CipherTextLen = uint16(cipherbuf.Len())
+
+	extbuf := new(bytes.Buffer)
+
+	err = binary.Write(extbuf, binary.BigEndian, a.NonceLen)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(extbuf, binary.BigEndian, a.CipherTextLen)
+	if err != nil {
+		return err
+	}
+
+	_, err = extbuf.ReadFrom(noncebuf)
+	if err != nil {
+		return err
+	}
+
+	noncepadding := make([]byte, (noncebuf.Len()+3) & ^3)
+	_, err = extbuf.Write(noncepadding)
+	if err != nil {
+		return err
+	}
+	_, err = extbuf.ReadFrom(cipherbuf)
+	if err != nil {
+		return err
+	}
+	cipherpadding := make([]byte, (noncebuf.Len()+3) & ^3)
+	_, err = extbuf.Write(cipherpadding)
+	if err != nil {
+		return err
+
+	}
+	// FIXME Add additionalpadding as described in section 5.6 of nts draft?
+
+	a.ExtHdr.Type = ExtAuthenticator
+	a.ExtHdr.Length = 4 + uint16(extbuf.Len())
+	err = a.ExtHdr.pack(buf)
+	if err != nil {
+		return err
+	}
+
+	_, err = buf.ReadFrom(extbuf)
+	if err != nil {
+
+		return err
+	}
+	//_, err = buf.Write(additionalpadding)
+	//if err != nil {
+	//	return err
+	//}
+
+	return nil
 }
 
 // QueryOptions contains the list of configurable options that may be used
@@ -288,7 +655,22 @@ func Query(host string) (*Response, error) {
 // QueryWithOptions performs the same function as Query but allows for the
 // customization of several query options.
 func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
-	m, now, err := getTime(host, opt)
+	m, now, err := getTime(host, opt, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return parseTime(m, now), nil
+}
+
+func QueryNTS(host string, key Key, cookie []byte) (*Response, error) {
+	return QueryNTSOptions(host, QueryOptions{}, key, cookie)
+}
+
+// QueryWithNTS attempts to query a NTS server after having done
+// initial NTS Key Exchange using key Key and a cookie from the cookie
+// jar we got from the NTS-KE server.
+func QueryNTSOptions(host string, opt QueryOptions, key Key, cookie []byte) (*Response, error) {
+	m, now, err := getTime(host, opt, key, cookie)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +682,7 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 //
 // Deprecated: TimeV is deprecated. Use QueryWithOptions instead.
 func TimeV(host string, version int) (time.Time, error) {
-	m, recvTime, err := getTime(host, QueryOptions{Version: version})
+	m, recvTime, err := getTime(host, QueryOptions{Version: version}, nil, nil)
 	if err != nil {
 		return time.Now(), err
 	}
@@ -324,7 +706,7 @@ func Time(host string) (time.Time, error) {
 
 // getTime performs the NTP server query and returns the response message
 // along with the local system time it was received.
-func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
+func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTime, error) {
 	if opt.Version == 0 {
 		opt.Version = defaultNtpVersion
 	}
@@ -381,29 +763,41 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	// Allocate a message to hold the response.
 	recvMsg := new(msg)
 
-	// Allocate a message to hold the query.
-	xmitMsg := new(msg)
-	xmitMsg.setMode(client)
-	xmitMsg.setVersion(opt.Version)
-	xmitMsg.setLeap(LeapNotInSync)
+	var xmitmsg NtpMsg
+	xmitmsg.Hdr.Version = opt.Version
+	xmitmsg.Hdr.Mode = client
+	xmitmsg.Hdr.LeapIndicator = LeapNotInSync
 
-	// To ensure privacy and prevent spoofing, try to use a random 64-bit
-	// value for the TransmitTime. If crypto/rand couldn't generate a
-	// random value, fall back to using the system clock. Keep track of
-	// when the messsage was actually transmitted.
-	bits := make([]byte, 8)
-	_, err = rand.Read(bits)
-	var xmitTime time.Time
-	if err == nil {
-		xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
-		xmitTime = time.Now()
-	} else {
-		xmitTime = time.Now()
-		xmitMsg.TransmitTime = toNtpTime(xmitTime)
+	// Generate and remember a unique identifier for our packet
+	var uqext UniqueIdentifier
+
+	_, err = uqext.Generate()
+	if err != nil {
+		return nil, 0, err
+	}
+	xmitmsg.AddExt(uqext)
+
+	var c Cookie
+
+	c.Cookie = cookie
+	xmitmsg.AddExt(c)
+
+	var auth Authenticator
+
+	auth.Key = key
+	xmitmsg.AddExt(auth)
+
+	xmitTime := time.Now()
+
+	buf, err := xmitmsg.Pack()
+	if err != nil {
+		return nil, 0, err
 	}
 
+	xmitmsg.String()
+
 	// Transmit the query.
-	err = binary.Write(con, binary.BigEndian, xmitMsg)
+	_, err = con.Write(buf.Bytes())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -433,9 +827,9 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if recvMsg.TransmitTime == ntpTime(0) {
 		return nil, 0, errors.New("invalid transmit time in response")
 	}
-	if recvMsg.OriginTime != xmitMsg.TransmitTime {
-		return nil, 0, errors.New("server response mismatch")
-	}
+	//	if recvMsg.OriginTime != xmitMsg.TransmitTime {
+	//		return nil, 0, errors.New("server response mismatch")
+	//	}
 	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
 		return nil, 0, errors.New("server clock ticked backwards")
 	}
