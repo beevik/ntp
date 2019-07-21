@@ -155,14 +155,14 @@ func TestValidate(t *testing.T) {
 
 func TestBadServerPort(t *testing.T) {
 	// Not NTP port.
-	tm, _, err := getTime(host, QueryOptions{Port: 9})
+	tm, _, err := getTime(host, QueryOptions{Port: 9}, nil, nil)
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
 func TestTTL(t *testing.T) {
 	// TTL of 1 should cause a timeout.
-	tm, _, err := getTime(host, QueryOptions{TTL: 1})
+	tm, _, err := getTime(host, QueryOptions{TTL: 1}, nil, nil)
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
