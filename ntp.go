@@ -175,7 +175,7 @@ type NtpHdr struct {
 	ReferenceTime  time.Time
 	OriginTime     time.Time
 	ReceiveTime    time.Time
-	TransmitTime   time.Time
+	TransmitTime   ntpTime
 }
 
 func (nh NtpHdr) string() string {
@@ -208,6 +208,26 @@ func (nh NtpHdr) string() string {
 	)
 }
 
+func (m *NtpMsg) antiSpoof(time time.Time) ntpTime {
+	// To ensure privacy and prevent spoofing, try to use a random 64-bit
+	// value for the TransmitTime. If crypto/rand couldn't generate a
+	// random value, fall back to using the system clock. Keep track of
+	// when the messsage was actually transmitted.
+	bits := make([]byte, 8)
+	_, err := rand.Read(bits)
+
+	var cookie ntpTime
+	if err == nil {
+		cookie = ntpTime(binary.BigEndian.Uint64(bits))
+	} else {
+		cookie = toNtpTime(time)
+	}
+
+	m.Hdr.TransmitTime = cookie
+
+	return cookie
+}
+
 func (nh NtpHdr) pack(buf *bytes.Buffer) error {
 	var wire msg
 
@@ -228,13 +248,10 @@ func (nh NtpHdr) pack(buf *bytes.Buffer) error {
 	wire.OriginTime = toNtpTime(nh.OriginTime)
 	wire.ReceiveTime = toNtpTime(nh.ReceiveTime)
 
-	// Make transmittime a sort of anti-spoofing cookie
-	bits := make([]byte, 8)
-	_, err := rand.Read(bits)
+	// Copy transmittime verbatim
+	wire.TransmitTime = nh.TransmitTime
 
-	wire.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
-
-	err = binary.Write(buf, binary.BigEndian, wire)
+	err := binary.Write(buf, binary.BigEndian, wire)
 	if err != nil {
 		return err
 	}
@@ -771,6 +788,9 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 	xmitmsg.Hdr.Mode = client
 	xmitmsg.Hdr.LeapIndicator = LeapNotInSync
 
+	xmitTime := time.Now()
+	spoofcookie := xmitmsg.antiSpoof(xmitTime)
+
 	if opt.NTS {
 		// Generate and remember a unique identifier for our packet
 		var uqext UniqueIdentifier
@@ -792,14 +812,10 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 		xmitmsg.AddExt(auth)
 	}
 
-	xmitTime := time.Now()
-
 	buf, err := xmitmsg.Pack()
 	if err != nil {
 		return nil, 0, err
 	}
-
-	xmitmsg.String()
 
 	// Transmit the query.
 	_, err = con.Write(buf.Bytes())
@@ -832,9 +848,9 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 	if recvMsg.TransmitTime == ntpTime(0) {
 		return nil, 0, errors.New("invalid transmit time in response")
 	}
-	//	if recvMsg.OriginTime != xmitMsg.TransmitTime {
-	//		return nil, 0, errors.New("server response mismatch")
-	//	}
+	if recvMsg.OriginTime != spoofcookie {
+		return nil, 0, errors.New("server response mismatch")
+	}
 	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
 		return nil, 0, errors.New("server clock ticked backwards")
 	}
