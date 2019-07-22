@@ -1,5 +1,4 @@
-[![Build Status](https://travis-ci.org/beevik/ntp.svg?branch=master)](https://travis-ci.org/beevik/ntp)
-[![GoDoc](https://godoc.org/github.com/beevik/ntp?status.svg)](https://godoc.org/github.com/beevik/ntp)
+[![GoDoc](https://godoc.org/github.com/beevik/ntp?status.svg)](https://godoc.org/github.com/mchackorg/ntp)
 
 ntp
 ===
@@ -8,6 +7,9 @@ The ntp package is an implementation of a Simple NTP (SNTP) client based on
 [RFC5905](https://tools.ietf.org/html/rfc5905). It allows you to connect to
 a remote NTP server and request information about the current time.
 
+This friendly fork also includes a work in progress Network Time
+Security (NTS) in an attempt to cryptographically validate the
+response from the NTP server.
 
 ## Querying the current time
 
@@ -27,7 +29,7 @@ response, err := ntp.Query("0.beevik-ntp.pool.ntp.org")
 time := time.Now().Add(response.ClockOffset)
 ```
 
-Alternatively, use the [`QueryWithOptions`](https://godoc.org/github.com/beevik/ntp#QueryWithOptions)
+Alternatively, use the [`QueryWithOptions`](https://godoc.org/github.com/mchackorg/ntp#QueryWithOptions)
 function if you want to change the default behavior used by the `Query`
 function:
 ```go
@@ -35,6 +37,11 @@ options := ntp.QueryOptions{ Timeout: 30*time.Second, TTL: 5 }
 response, err := ntp.QueryWithOptions("0.beevik-ntp.pool.ntp.org", options)
 time := time.Now().Add(response.ClockOffset)
 ```
+
+You can also use
+[`QueryNTS`](https://godoc.org/github.com/mchackorg/ntp#QueryNTS) and
+[`QueryNTYSOptions`](https://godoc.org/github.com/mchackorg/ntp#QueryNTSOptions)
+if you want to use Network Time Security extensions.
 
 The [`Response`](https://godoc.org/github.com/beevik/ntp#Response) structure
 returned by `Query` includes the following information:
