@@ -680,13 +680,15 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	return parseTime(m, now), nil
 }
 
+// QueryNTS attempts to query a NTS server after having done initial
+// NTS Key Exchange using key Key and a cookie from the cookie jar we
+// got from the NTS-KE server.
 func QueryNTS(host string, key Key, cookie []byte) (*Response, error) {
 	return QueryNTSOptions(host, QueryOptions{NTS: true}, key, cookie)
 }
 
-// QueryNTSOptions attempts to query a NTS server after having done
-// initial NTS Key Exchange using key Key and a cookie from the cookie
-// jar we got from the NTS-KE server.
+// QueryNTSOptions does the same as QueryNTS but allows for
+// customization of several query options.
 func QueryNTSOptions(host string, opt QueryOptions, key Key, cookie []byte) (*Response, error) {
 	opt.NTS = true
 
