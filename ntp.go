@@ -867,7 +867,6 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 			}
 			switch eh.Type {
 			case ExtUniqueIdentifier:
-				fmt.Println("uniqid")
 				u := UniqueIdentifier{ExtHdr: eh}
 				err = u.unpack(msgbuf)
 				if err != nil {
