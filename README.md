@@ -38,10 +38,13 @@ response, err := ntp.QueryWithOptions("0.beevik-ntp.pool.ntp.org", options)
 time := time.Now().Add(response.ClockOffset)
 ```
 
-You can also use
-[`QueryNTS`](https://godoc.org/github.com/mchackorg/ntp#QueryNTS) and
-[`QueryNTYSOptions`](https://godoc.org/github.com/mchackorg/ntp#QueryNTSOptions)
-if you want to use Network Time Security extensions.
+If you want to turn on Network Time Security use
+```go
+options := ntp.QueryOptions{ NTS: true, C2s: ke.Meta.C2sKey, S2c: ke.Meta.S2cKey }
+```
+
+where you got the keys from an earlier NTS-KE handshake from using the
+[ntske](https://gitlab.com/hacklunch/ntske/) package.
 
 The [`Response`](https://godoc.org/github.com/beevik/ntp#Response) structure
 returned by `Query` includes the following information:

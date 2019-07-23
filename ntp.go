@@ -566,7 +566,10 @@ type QueryOptions struct {
 	Port         int           // Server port, defaults to 123
 	TTL          int           // IP TTL to use, defaults to system default
 	Protocol     string        // Protocol to use, defaults to udp
-	NTS          bool          // Use NTS?
+	NTS          bool          // Use Network Time Security (NTS)?
+	C2s          Key           // Client to server key for NTS.
+	S2c          Key           // Server to client key for NTS.
+	Cookie       []byte        // Cookie for NTS.
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -690,26 +693,7 @@ func Query(host string) (*Response, error) {
 // QueryWithOptions performs the same function as Query but allows for the
 // customization of several query options.
 func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
-	m, now, err := getTime(host, opt, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	return parseTime(m, now), nil
-}
-
-// QueryNTS attempts to query a NTS server after having done initial
-// NTS Key Exchange using key Key and a cookie from the cookie jar we
-// got from the NTS-KE server.
-func QueryNTS(host string, key Key, cookie []byte) (*Response, error) {
-	return QueryNTSOptions(host, QueryOptions{NTS: true}, key, cookie)
-}
-
-// QueryNTSOptions does the same as QueryNTS but allows for
-// customization of several query options.
-func QueryNTSOptions(host string, opt QueryOptions, key Key, cookie []byte) (*Response, error) {
-	opt.NTS = true
-
-	m, now, err := getTime(host, opt, key, cookie)
+	m, now, err := getTime(host, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +705,7 @@ func QueryNTSOptions(host string, opt QueryOptions, key Key, cookie []byte) (*Re
 //
 // Deprecated: TimeV is deprecated. Use QueryWithOptions instead.
 func TimeV(host string, version int) (time.Time, error) {
-	m, recvTime, err := getTime(host, QueryOptions{Version: version}, nil, nil)
+	m, recvTime, err := getTime(host, QueryOptions{Version: version})
 	if err != nil {
 		return time.Now(), err
 	}
@@ -745,7 +729,7 @@ func Time(host string) (time.Time, error) {
 
 // getTime performs the NTP server query and returns the response message
 // along with the local system time it was received.
-func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTime, error) {
+func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if opt.Version == 0 {
 		opt.Version = defaultNtpVersion
 	}
@@ -821,12 +805,12 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 
 		var c Cookie
 
-		c.Cookie = cookie
+		c.Cookie = opt.Cookie
 		xmitmsg.AddExt(c)
 
 		var auth Authenticator
 
-		auth.Key = key
+		auth.Key = opt.C2s
 		xmitmsg.AddExt(auth)
 	}
 
