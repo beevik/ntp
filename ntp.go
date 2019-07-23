@@ -313,6 +313,10 @@ func (h ExtHdr) pack(buf *bytes.Buffer) error {
 	err := binary.Write(buf, binary.BigEndian, h)
 	return err
 }
+func (h *ExtHdr) unpack(buf *bytes.Reader) error {
+	err := binary.Read(buf, binary.BigEndian, h)
+	return err
+}
 
 func (h ExtHdr) Header() ExtHdr { return h }
 
@@ -366,6 +370,19 @@ func (u UniqueIdentifier) pack(buf *bytes.Buffer) error {
 		return err
 	}
 
+	return nil
+}
+
+func (u *UniqueIdentifier) unpack(buf *bytes.Reader) error {
+	if u.ExtHdr.Type != ExtUniqueIdentifier {
+		return fmt.Errorf("expected unpacked EF header")
+	}
+	valueLen := u.ExtHdr.Length - uint16(binary.Size(u.ExtHdr))
+	id := make([]byte, valueLen)
+	if err := binary.Read(buf, binary.BigEndian, id); err != nil {
+		return err
+	}
+	u.Id = id
 	return nil
 }
 
@@ -793,10 +810,9 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 	xmitTime := time.Now()
 	spoofcookie := xmitmsg.antiSpoof(xmitTime)
 
+	var uqext UniqueIdentifier
 	if opt.NTS {
 		// Generate and remember a unique identifier for our packet
-		var uqext UniqueIdentifier
-
 		_, err = uqext.Generate()
 		if err != nil {
 			return nil, 0, err
@@ -826,9 +842,46 @@ func getTime(host string, opt QueryOptions, key Key, cookie []byte) (*msg, ntpTi
 	}
 
 	// Receive the response.
-	err = binary.Read(con, binary.BigEndian, recvMsg)
+	readbuf := make([]byte, 64*1024)
+	n, _, err := con.ReadFromUDP(readbuf)
 	if err != nil {
 		return nil, 0, err
+	}
+	readbuf = readbuf[:n]
+
+	// TODO a reader, since read-only, and perhaps we could seek in it, to peek
+	// at exthdr type? hm
+	msgbuf := bytes.NewReader(readbuf)
+
+	err = binary.Read(msgbuf, binary.BigEndian, recvMsg)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if opt.NTS {
+		for msgbuf.Len() >= 28 {
+			eh := ExtHdr{}
+			err = eh.unpack(msgbuf)
+			if err != nil {
+				return nil, 0, fmt.Errorf("unpack EF header: %s", err)
+			}
+			switch eh.Type {
+			case ExtUniqueIdentifier:
+				u := UniqueIdentifier{ExtHdr: eh}
+				err = u.unpack(msgbuf)
+				if err != nil {
+					return nil, 0, fmt.Errorf("unpack UniqueIdentifier EF: %s", err)
+				}
+				if !bytes.Equal(u.Id, uqext.Id) {
+					return nil, 0, fmt.Errorf("UniqueIdentifier mismatch!")
+				}
+				// case ExtAuthenticator:
+				//
+				// TODO inside authenticator we'll find more EFs, so perhaps
+				// this overall approach is not great at all...
+			}
+		}
+
 	}
 
 	// Keep track of the time the response was received.
