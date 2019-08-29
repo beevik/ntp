@@ -181,7 +181,7 @@ func TestShortConversion(t *testing.T) {
 	assert.Equal(t, 0*time.Nanosecond, ts.Duration())
 
 	ts = 0x00000001
-	assert.Equal(t, 15258*time.Nanosecond, ts.Duration()) // well, it's actually 15258.789, but it's good enough
+	assert.Equal(t, 15259*time.Nanosecond, ts.Duration()) // well, it's actually 15258.789, but it's good enough
 
 	ts = 0x00008000
 	assert.Equal(t, 500*time.Millisecond, ts.Duration()) // precise
