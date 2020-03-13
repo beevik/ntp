@@ -8,7 +8,46 @@ The ntp package is an implementation of a Simple NTP (SNTP) client based on
 [RFC5905](https://tools.ietf.org/html/rfc5905). It allows you to connect to
 a remote NTP server and request information about the current time.
 
+## Steps to install and use the package
+Use the following commands :-
+```shell
+cd $GOPATH/src
+git clone https://github.com/beevik/ntp.git
+cd ntp
+go install ntp.go
+```
+This should make your package accesible in all the go programs you write.
 
+## Creating and Running a sample script which uses the ntp package:-
+
+First create a file(after installing the package) using the following commands :-
+
+```shell
+cd
+mkdir test
+vi test.go
+```
+Contents of test.go -
+
+```go
+package main
+import (
+    "fmt"
+    "log"
+    "ntp"
+)
+func main(){
+        time, err := ntp.Time("0.pool.ntp.org")
+        fmt.Println(time)
+        if err != nil{
+        log.Fatal(err)
+        }
+}
+```
+You can then run this script using the command :-
+```shell
+go run test.go
+```
 ## Querying the current time
 
 If all you care about is the current time according to a remote NTP server,
