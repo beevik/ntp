@@ -48,7 +48,7 @@ func assertInvalid(t *testing.T, r *Response) {
 	}
 }
 
-func TestTime(t *testing.T) {
+func TestOnlineTime(t *testing.T) {
 	tm, err := Time(host)
 	now := time.Now()
 	if isNil(t, err) {
@@ -58,7 +58,7 @@ func TestTime(t *testing.T) {
 	}
 }
 
-func TestTimeFailure(t *testing.T) {
+func TestOnlineTimeFailure(t *testing.T) {
 	// Use a link-local IP address that won't have an NTP server listening
 	// on it. This should return the local system's time.
 	local, err := Time("169.254.122.229")
@@ -73,7 +73,7 @@ func TestTimeFailure(t *testing.T) {
 	assert.True(t, diffMinutes > -1 && diffMinutes < 1)
 }
 
-func TestQuery(t *testing.T) {
+func TestOnlineQuery(t *testing.T) {
 	t.Logf("[%s] ----------------------", host)
 	t.Logf("[%s] NTP protocol version %d", host, 4)
 
@@ -108,7 +108,7 @@ func stringOrEmpty(s string) string {
 	return s
 }
 
-func TestValidate(t *testing.T) {
+func TestOfflineValidate(t *testing.T) {
 	var m msg
 	var r *Response
 	m.Stratum = 1
@@ -153,28 +153,28 @@ func TestValidate(t *testing.T) {
 	assert.Equal(t, r.RootDistance, 8*time.Second)
 }
 
-func TestBadServerPort(t *testing.T) {
+func TestOnlineBadServerPort(t *testing.T) {
 	// Not NTP port.
 	tm, _, err := getTime(host, QueryOptions{Port: 9})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
-func TestTTL(t *testing.T) {
+func TestOnlineTTL(t *testing.T) {
 	// TTL of 1 should cause a timeout.
 	tm, _, err := getTime(host, QueryOptions{TTL: 1})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
-func TestQueryTimeout(t *testing.T) {
+func TestOnlineQueryTimeout(t *testing.T) {
 	// Force an immediate timeout.
 	tm, err := QueryWithOptions(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
-func TestShortConversion(t *testing.T) {
+func TestOfflineShortConversion(t *testing.T) {
 	var ts ntpTimeShort
 
 	ts = 0x00000000
@@ -205,7 +205,7 @@ func TestShortConversion(t *testing.T) {
 	assert.Equal(t, 65536*time.Second-(1000000000/512)*time.Nanosecond, ts.Duration()) // last precise value
 }
 
-func TestLongConversion(t *testing.T) {
+func TestOfflineLongConversion(t *testing.T) {
 	ts := []ntpTime{0x0, 0xff800000, 0x1ff800000, 0x80000000ff800000, 0xffffffffff800000}
 
 	for _, v := range ts {
@@ -222,7 +222,7 @@ func abs(d time.Duration) time.Duration {
 	}
 }
 
-func TestOffsetCalculation(t *testing.T) {
+func TestOfflineOffsetCalculation(t *testing.T) {
 	now := time.Now()
 	t1 := toNtpTime(now)
 	t2 := toNtpTime(now.Add(20 * time.Second))
@@ -238,7 +238,7 @@ func TestOffsetCalculation(t *testing.T) {
 	assert.Equal(t, expectedOffset, offset)
 }
 
-func TestOffsetCalculationNegative(t *testing.T) {
+func TestOfflineOffsetCalculationNegative(t *testing.T) {
 	now := time.Now()
 	t1 := toNtpTime(now.Add(101 * time.Second))
 	t2 := toNtpTime(now.Add(102 * time.Second))
@@ -253,7 +253,7 @@ func TestOffsetCalculationNegative(t *testing.T) {
 	assert.Equal(t, expectedOffset, offset)
 }
 
-func TestMinError(t *testing.T) {
+func TestOfflineMinError(t *testing.T) {
 	start := time.Now()
 	m := &msg{
 		Stratum:       1,
@@ -296,7 +296,7 @@ func TestMinError(t *testing.T) {
 	}
 }
 
-func TestTimeConversions(t *testing.T) {
+func TestOfflineTimeConversions(t *testing.T) {
 	nowNtp := toNtpTime(time.Now())
 	now := nowNtp.Time()
 	startNow := now
@@ -307,7 +307,7 @@ func TestTimeConversions(t *testing.T) {
 	assert.Equal(t, now, startNow)
 }
 
-func TestKissCode(t *testing.T) {
+func TestOfflineKissCode(t *testing.T) {
 	codes := []struct {
 		id  uint32
 		str string

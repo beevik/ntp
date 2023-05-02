@@ -1,3 +1,10 @@
+Release v0.3.2
+==============
+
+**Changes**
+
+* Rename unit tests to enable easier test filtering.
+
 Release v0.3.0
 ==============
 
