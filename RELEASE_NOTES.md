@@ -1,3 +1,17 @@
+Release v1.0.0
+==============
+
+This package has been stable for several years with no bug reports in that
+time. It is also pretty much feature complete. I am therefore updating the
+version to 1.0.0.
+
+Because this is a major release, all previously deprecated code has been
+removed from the package.
+
+**Breaking changes**
+
+* Removed the `TimeV` function. Use `Time` or `QueryWithOptions` instead.
+
 Release v0.3.2
 ==============
 

@@ -149,11 +149,6 @@ func (m *msg) setLeap(li LeapIndicator) {
 	m.LiVnMode = (m.LiVnMode & 0x3f) | uint8(li)<<6
 }
 
-// getVersion returns the version value in the message.
-func (m *msg) getVersion() int {
-	return int((m.LiVnMode >> 3) & 0x07)
-}
-
 // getMode returns the mode value in the message.
 func (m *msg) getMode() mode {
 	return mode(m.LiVnMode & 0x07)
@@ -302,17 +297,15 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	return parseTime(m, now), nil
 }
 
-// TimeV returns the current time using information from a remote NTP server.
-// On error, it returns the local system time. The version may be 2, 3, or 4.
-//
-// Deprecated: TimeV is deprecated. Use QueryWithOptions instead.
-func TimeV(host string, version int) (time.Time, error) {
-	m, recvTime, err := getTime(host, QueryOptions{Version: version})
+// Time returns the current time using information from a remote NTP server.
+// It uses version 4 of the NTP protocol. On error, it returns the local
+// system time.
+func Time(host string) (time.Time, error) {
+	r, err := Query(host)
 	if err != nil {
 		return time.Now(), err
 	}
 
-	r := parseTime(m, recvTime)
 	err = r.Validate()
 	if err != nil {
 		return time.Now(), err
@@ -320,13 +313,6 @@ func TimeV(host string, version int) (time.Time, error) {
 
 	// Use the clock offset to calculate the time.
 	return time.Now().Add(r.ClockOffset), nil
-}
-
-// Time returns the current time using information from a remote NTP server.
-// It uses version 4 of the NTP protocol. On error, it returns the local
-// system time.
-func Time(host string) (time.Time, error) {
-	return TimeV(host, defaultNtpVersion)
 }
 
 // getTime performs the NTP server query and returns the response message
