@@ -213,15 +213,6 @@ func TestOfflineLongConversion(t *testing.T) {
 	}
 }
 
-func abs(d time.Duration) time.Duration {
-	switch {
-	case int64(d) < 0:
-		return -d
-	default:
-		return d
-	}
-}
-
 func TestOfflineOffsetCalculation(t *testing.T) {
 	now := time.Now()
 	t1 := toNtpTime(now)
