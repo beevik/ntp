@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"golang.org/x/net/ipv4"
@@ -167,6 +168,9 @@ type QueryOptions struct {
 	LocalAddress string        // IP address to use for the client address
 	Port         int           // Server port, defaults to 123
 	TTL          int           // IP TTL to use, defaults to system default
+
+	// Dial allows the user to override the default UDP dialer behavior when contacting the remote NTP server.
+	Dial func(localAddress string, localPort int, remoteAddress string, remotePort int) (net.Conn, error)
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -324,29 +328,14 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if opt.Version < 2 || opt.Version > 4 {
 		return nil, 0, errors.New("invalid protocol version requested")
 	}
-
-	// Resolve the remote NTP server address.
-	raddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, "123"))
-	if err != nil {
-		return nil, 0, err
+	if opt.Port == 0 {
+		opt.Port = 123
+	}
+	if opt.Dial == nil {
+		opt.Dial = defaultDial
 	}
 
-	// Resolve the local address if specified as an option.
-	var laddr *net.UDPAddr
-	if opt.LocalAddress != "" {
-		laddr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(opt.LocalAddress, "0"))
-		if err != nil {
-			return nil, 0, err
-		}
-	}
-
-	// Override the port if requested.
-	if opt.Port != 0 {
-		raddr.Port = opt.Port
-	}
-
-	// Prepare a "connection" to the remote server.
-	con, err := net.DialUDP("udp", laddr, raddr)
+	con, err := opt.Dial(opt.LocalAddress, 0, host, opt.Port)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -434,6 +423,28 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	recvMsg.OriginTime = toNtpTime(xmitTime)
 
 	return recvMsg, recvTime, nil
+}
+
+// defaultDial provides a UDP dialer based on Go's built-in net stack.
+func defaultDial(localAddress string, localPort int, remoteAddress string, remotePort int) (net.Conn, error) {
+	raddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(remoteAddress, strconv.Itoa(remotePort)))
+	if err != nil {
+		return nil, err
+	}
+
+	var laddr *net.UDPAddr
+	if localAddress != "" {
+		laddr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(localAddress, strconv.Itoa(localPort)))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	con, err := net.DialUDP("udp", laddr, raddr)
+	if err != nil {
+		return nil, err
+	}
+	return con, err
 }
 
 // parseTime parses the NTP packet along with the packet receive time to
