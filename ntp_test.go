@@ -5,6 +5,8 @@
 package ntp
 
 import (
+	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -325,4 +327,27 @@ func TestOfflineKissCode(t *testing.T) {
 	for _, c := range codes {
 		assert.Equal(t, kissCode(c.id), c.str)
 	}
+}
+
+func TestOfflineCustomDialer(t *testing.T) {
+	ntpHost := "remote"
+	localHost := "local"
+	dialerCalled := false
+
+	qo := QueryOptions{
+		LocalAddress: localHost,
+		Dial: func(la string, lp int, ra string, rp int) (net.Conn, error) {
+			assert.Equal(t, la, localHost)
+			assert.Equal(t, ra, ntpHost)
+			assert.Equal(t, rp, 123)
+			// Only expect to be called once:
+			assert.False(t, dialerCalled)
+
+			dialerCalled = true
+			return nil, errors.New("not dialing")
+		},
+	}
+	_, _ = QueryWithOptions(ntpHost, qo)
+
+	assert.True(t, dialerCalled)
 }
