@@ -330,24 +330,29 @@ func TestOfflineKissCode(t *testing.T) {
 }
 
 func TestOfflineCustomDialer(t *testing.T) {
-	ntpHost := "remote"
-	localHost := "local"
+	raddr := "remote"
+	laddr := "local"
 	dialerCalled := false
+	notDialingErr := errors.New("not dialing")
 
-	qo := QueryOptions{
-		LocalAddress: localHost,
-		Dial: func(la string, lp int, ra string, rp int) (net.Conn, error) {
-			assert.Equal(t, la, localHost)
-			assert.Equal(t, ra, ntpHost)
-			assert.Equal(t, rp, 123)
-			// Only expect to be called once:
-			assert.False(t, dialerCalled)
+	customDialer := func(la string, lp int, ra string, rp int) (net.Conn, error) {
+		assert.Equal(t, laddr, la)
+		assert.Equal(t, 0, lp)
+		assert.Equal(t, raddr, ra)
+		assert.Equal(t, 123, rp)
+		// Only expect to be called once:
+		assert.False(t, dialerCalled)
 
-			dialerCalled = true
-			return nil, errors.New("not dialing")
-		},
+		dialerCalled = true
+		return nil, notDialingErr
 	}
-	_, _ = QueryWithOptions(ntpHost, qo)
 
+	opt := QueryOptions{
+		LocalAddress: laddr,
+		Dial:         customDialer,
+	}
+	r, err := QueryWithOptions(raddr, opt)
+	assert.Nil(t, r)
+	assert.Equal(t, notDialingErr, err)
 	assert.True(t, dialerCalled)
 }
