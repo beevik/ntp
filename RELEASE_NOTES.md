@@ -1,3 +1,12 @@
+Release v1.1.0
+==============
+
+**Changes**
+
+* Added the `Dial` property to the `QueryOptions` struct. This allows the user
+  to override the default UDP dialer when setting up a connection to a remote
+  NTP server.
+
 Release v1.0.0
 ==============
 
