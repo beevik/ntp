@@ -1,3 +1,10 @@
+Release v1.1.1
+==============
+
+**Fixes**
+
+* Fixed a missing indirect go module dependency.
+
 Release v1.1.0
 ==============
 
