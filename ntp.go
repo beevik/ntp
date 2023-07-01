@@ -15,6 +15,8 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -54,7 +56,7 @@ const (
 	maxDispersion     = 16 * time.Second
 )
 
-var NotSupportCryptoMethod = errors.New("Not Support Crypto Method , only support md5 and sha1")
+var ErrNotSupportCryptoMethod = errors.New("Not Support Crypto Method , only support md5, sha1, sha256, sha512")
 
 // Internal variables
 var (
@@ -78,6 +80,8 @@ const (
 const (
 	CryptoMd5 = 1 << iota
 	CryptoSha1
+	CryptoSha256
+	CryptoSha512
 )
 
 // An ntpTime is a 64-bit fixed-point (Q32.32) representation of the number of
@@ -615,8 +619,14 @@ func writeAuthenMsgToConn(con io.Writer, content []byte, authentication Authenti
 	case authentication.CryptoMethod&CryptoSha1 == CryptoSha1:
 		err = binary.Write(con, binary.BigEndian, getDigestBySha1(content, []byte(authentication.Authentication)))
 
+	case authentication.CryptoMethod&CryptoSha256 == CryptoSha256:
+		err = binary.Write(con, binary.BigEndian, getDigestBySha256(content, []byte(authentication.Authentication)))
+
+	case authentication.CryptoMethod&CryptoSha512 == CryptoSha512:
+		err = binary.Write(con, binary.BigEndian, getDigestSha512(content, []byte(authentication.Authentication)))
+
 	default:
-		return NotSupportCryptoMethod
+		return ErrNotSupportCryptoMethod
 	}
 
 	return err
@@ -634,5 +644,21 @@ func getDigestByMd5(content []byte, cryptoBytes []byte) [16]byte {
 func getDigestBySha1(content []byte, cryptoBytes []byte) [20]byte {
 	data := append(cryptoBytes, content...)
 	hash := sha1.Sum(data)
+	return hash
+}
+
+// get sha256 crypto digest
+func getDigestBySha256(content []byte, cryptoBytes []byte) [32]byte {
+	data := append(cryptoBytes, content...)
+	hash := sha256.Sum256(data)
+
+	return hash
+}
+
+// get sha512 crypto digest
+func getDigestSha512(content []byte, cryptoBytes []byte) [64]byte {
+	data := append(content, cryptoBytes...)
+	hash := sha512.Sum512(data)
+
 	return hash
 }

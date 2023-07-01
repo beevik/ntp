@@ -1,4 +1,4 @@
-module github.com/silves-xiang/ntp
+module github.com/beevik/ntp
 
 go 1.13
 
