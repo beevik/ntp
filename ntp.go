@@ -11,10 +11,16 @@
 package ntp
 
 import (
+	"bytes"
+	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -50,6 +56,8 @@ const (
 	maxDispersion     = 16 * time.Second
 )
 
+var ErrNotSupportCryptoMethod = errors.New("Not Support Crypto Method , only support md5, sha1, sha256, sha512")
+
 // Internal variables
 var (
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -67,6 +75,13 @@ const (
 	broadcast
 	controlMessage
 	reservedPrivate
+)
+
+const (
+	CryptoMd5 = 1 << iota
+	CryptoSha1
+	CryptoSha256
+	CryptoSha512
 )
 
 // An ntpTime is a 64-bit fixed-point (Q32.32) representation of the number of
@@ -135,6 +150,12 @@ type msg struct {
 	TransmitTime   ntpTime
 }
 
+type Authentication struct {
+	KeyID          uint32 // key id
+	CryptoMethod   int    // only support md5 and sha1
+	Authentication string // the crypto string
+}
+
 // setVersion sets the NTP protocol version on the message.
 func (m *msg) setVersion(v int) {
 	m.LiVnMode = (m.LiVnMode & 0xc7) | uint8(v)<<3
@@ -172,12 +193,19 @@ type dialFn func(laddr string, lport int, raddr string, rport int) (net.Conn, er
 // QueryOptions contains configurable options used by the QueryWithOptions
 // function.
 type QueryOptions struct {
-	Timeout      time.Duration // connection timeout, defaults to 5 seconds
-	Version      int           // NTP protocol version, defaults to 4
-	LocalAddress string        // address to use for the local system
-	Port         int           // remote server port, defaults to 123
-	TTL          int           // IP TTL to use, defaults to system default
-	Dial         dialFn        // overrides the default UDP dialer
+	Timeout        time.Duration  // connection timeout, defaults to 5 seconds
+	Version        int            // NTP protocol version, defaults to 4
+	LocalAddress   string         // address to use for the local system
+	Port           int            // remote server port, defaults to 123
+	TTL            int            // IP TTL to use, defaults to system default
+	Dial           dialFn         // overrides the default UDP dialer
+	authentication Authentication // ntp auth
+	needAuth       bool           // is need auth
+}
+
+func (q *QueryOptions) EnableAuthentication(authentication Authentication) {
+	q.needAuth = true
+	q.authentication = authentication
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -388,11 +416,20 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		xmitMsg.TransmitTime = toNtpTime(xmitTime)
 	}
 
+	var buf = &bytes.Buffer{}
 	// Transmit the query.
-	err = binary.Write(con, binary.BigEndian, xmitMsg)
+	err = binary.Write(buf, binary.BigEndian, xmitMsg)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	if opt.needAuth {
+		if err = writeAuthenMsgToConn(buf, buf.Bytes(), opt.authentication); err != nil {
+			return nil, 0, err
+		}
+	}
+
+	con.Write(buf.Bytes())
 
 	// Receive the response.
 	err = binary.Read(con, binary.BigEndian, recvMsg)
@@ -567,4 +604,61 @@ func kissCode(id uint32) string {
 		}
 	}
 	return string(b)
+}
+
+func writeAuthenMsgToConn(con io.Writer, content []byte, authentication Authentication) error {
+	var err error
+	// write key id
+	if err = binary.Write(con, binary.BigEndian, authentication.KeyID); err != nil {
+		return err
+	}
+	switch {
+	case authentication.CryptoMethod&CryptoMd5 == CryptoMd5:
+		err = binary.Write(con, binary.BigEndian, getDigestByMd5(content, []byte(authentication.Authentication)))
+
+	case authentication.CryptoMethod&CryptoSha1 == CryptoSha1:
+		err = binary.Write(con, binary.BigEndian, getDigestBySha1(content, []byte(authentication.Authentication)))
+
+	case authentication.CryptoMethod&CryptoSha256 == CryptoSha256:
+		err = binary.Write(con, binary.BigEndian, getDigestBySha256(content, []byte(authentication.Authentication)))
+
+	case authentication.CryptoMethod&CryptoSha512 == CryptoSha512:
+		err = binary.Write(con, binary.BigEndian, getDigestSha512(content, []byte(authentication.Authentication)))
+
+	default:
+		return ErrNotSupportCryptoMethod
+	}
+
+	return err
+}
+
+// get md5 crypto  digest
+func getDigestByMd5(content []byte, cryptoBytes []byte) [16]byte {
+	data := append(cryptoBytes, content...)
+	// 计算哈希值并返回
+	hash := md5.Sum(data)
+	return hash
+}
+
+// get sha1 crypto digest
+func getDigestBySha1(content []byte, cryptoBytes []byte) [20]byte {
+	data := append(cryptoBytes, content...)
+	hash := sha1.Sum(data)
+	return hash
+}
+
+// get sha256 crypto digest
+func getDigestBySha256(content []byte, cryptoBytes []byte) [32]byte {
+	data := append(cryptoBytes, content...)
+	hash := sha256.Sum256(data)
+
+	return hash
+}
+
+// get sha512 crypto digest
+func getDigestSha512(content []byte, cryptoBytes []byte) [64]byte {
+	data := append(content, cryptoBytes...)
+	hash := sha512.Sum512(data)
+
+	return hash
 }
