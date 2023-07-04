@@ -7,6 +7,7 @@ package ntp
 import (
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -122,24 +123,24 @@ func TestOfflineValidate(t *testing.T) {
 	m.OriginTime = 1 << 32
 	m.ReceiveTime = 1 << 32
 	m.TransmitTime = 1 << 32
-	r = parseTime(&m, 1<<32)
+	r = generateResponse(&m, 1<<32, nil)
 	assertValid(t, r)
 
 	// Negative freshness
 	m.ReferenceTime = 2 << 32
-	r = parseTime(&m, 1<<32)
+	r = generateResponse(&m, 1<<32, nil)
 	assertInvalid(t, r)
 
 	// Unfresh clock (48h)
 	m.OriginTime = 2 * 86400 << 32
 	m.ReceiveTime = 2 * 86400 << 32
 	m.TransmitTime = 2 * 86400 << 32
-	r = parseTime(&m, 2*86400<<32)
+	r = generateResponse(&m, 2*86400<<32, nil)
 	assertInvalid(t, r)
 
 	// Fresh clock (24h)
 	m.ReferenceTime = 1 * 86400 << 32
-	r = parseTime(&m, 2*86400<<32)
+	r = generateResponse(&m, 2*86400<<32, nil)
 	assertValid(t, r)
 
 	// Values indicating a negative RTT
@@ -148,7 +149,7 @@ func TestOfflineValidate(t *testing.T) {
 	m.OriginTime = 20 << 32
 	m.ReceiveTime = 10 << 32
 	m.TransmitTime = 15 << 32
-	r = parseTime(&m, 22<<32)
+	r = generateResponse(&m, 22<<32, nil)
 	assert.NotNil(t, r)
 	assertValid(t, r)
 	assert.Equal(t, r.RTT, 0*time.Second)
@@ -256,7 +257,7 @@ func TestOfflineMinError(t *testing.T) {
 		ReceiveTime:   toNtpTime(start.Add(2 * time.Second)),
 		TransmitTime:  toNtpTime(start.Add(3 * time.Second)),
 	}
-	r := parseTime(m, toNtpTime(start.Add(4*time.Second)))
+	r := generateResponse(m, toNtpTime(start.Add(4*time.Second)), nil)
 	assertValid(t, r)
 	assert.Equal(t, r.MinError, time.Duration(0))
 
@@ -267,7 +268,7 @@ func TestOfflineMinError(t *testing.T) {
 					m.OriginTime = toNtpTime(start.Add(org))
 					m.ReceiveTime = toNtpTime(start.Add(rec))
 					m.TransmitTime = toNtpTime(start.Add(xmt))
-					r = parseTime(m, toNtpTime(start.Add(dst)))
+					r = generateResponse(m, toNtpTime(start.Add(dst)), nil)
 					assertValid(t, r)
 					var error0, error1 time.Duration
 					if org >= rec {
@@ -355,4 +356,82 @@ func TestOfflineCustomDialer(t *testing.T) {
 	assert.Nil(t, r)
 	assert.Equal(t, notDialingErr, err)
 	assert.True(t, dialerCalled)
+}
+
+func TestOnlineAuthenticatedQuery(t *testing.T) {
+	// By default, this unit test is skipped, because it requires a local NTP
+	// server to be running and configured with known symmetric authentication
+	// keys.
+	//
+	// To run this test, you must execute go test with "-args test_auth". For
+	// example:
+	//
+	//    go test -v -args test_auth
+	//
+	// You must also run a localhost NTP server configured with the following
+	// trusted symmetric keys:
+	//
+	// ID   TYPE    KEY
+	// --   ----    ---
+	// 1    md5     cvuZyN4C8HX8hNcAWDWp
+	// 2    sha1    i1VKJZPEvlU5k0elvf1l
+	// 3    sha256  q3snwpWvBVww9pjU32ad
+	// 4    sha512  YvuUTFXXhIMDuCBYqRnt
+
+	skip := true
+	for _, arg := range os.Args[1:] {
+		if arg == "test_auth" {
+			skip = false
+		}
+	}
+	if skip {
+		t.Skip("Skipping authentication tests. Enable with -args test_auth")
+		return
+	}
+
+	cases := []struct {
+		Type        AuthType
+		Key         string
+		KeyID       uint16
+		ExpectedErr error
+	}{
+		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 1, nil},
+		{AuthMD5, "", 1, ErrAuthFailed},
+		{AuthMD5, "XvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
+		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 2, ErrAuthFailed},
+		{AuthSHA1, "cvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
+
+		{AuthSHA1, "i1VKJZPEvlU5k0elvf1l", 2, nil},
+		{AuthSHA1, "", 2, ErrAuthFailed},
+		{AuthSHA1, "X1VKJZPEvlU5k0elvf1l", 2, ErrAuthFailed},
+		{AuthSHA1, "i1VKJZPEvlU5k0elvf1l", 1, ErrAuthFailed},
+		{AuthMD5, "i1VKJZPEvlU5k0elvf1l", 2, ErrAuthFailed},
+
+		{AuthSHA256, "q3snwpWvBVww9pjU32ad", 3, nil},
+		{AuthSHA256, "", 3, ErrAuthFailed},
+		{AuthSHA256, "X3snwpWvBVww9pjU32ad", 3, ErrAuthFailed},
+		{AuthSHA256, "X3snwpWvBVww9pjU32ad", 2, ErrAuthFailed},
+		{AuthSHA1, "X3snwpWvBVww9pjU32ad", 3, ErrAuthFailed},
+
+		{AuthSHA512, "YvuUTFXXhIMDuCBYqRnt", 4, nil},
+		{AuthSHA512, "", 4, ErrAuthFailed},
+		{AuthSHA512, ".vuUTFXXhIMDuCBYqRnt", 4, ErrAuthFailed},
+		{AuthSHA512, "YvuUTFXXhIMDuCBYqRnt", 3, ErrAuthFailed},
+		{AuthSHA256, "YvuUTFXXhIMDuCBYqRnt", 4, ErrAuthFailed},
+	}
+
+	for i, c := range cases {
+		opt := QueryOptions{
+			Auth: AuthOptions{c.Type, c.Key, c.KeyID},
+		}
+		r, err := QueryWithOptions("localhost", opt)
+		if err != nil {
+			t.Errorf("case %d: unexpected error [%v]\n", i, err)
+		} else {
+			err = r.Validate()
+			if err != c.ExpectedErr {
+				t.Errorf("case %d: expected error [%v], got [%v]\n", i, c.ExpectedErr, err)
+			}
+		}
+	}
 }
