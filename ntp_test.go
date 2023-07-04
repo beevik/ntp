@@ -7,6 +7,7 @@ package ntp
 import (
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,11 +16,12 @@ import (
 )
 
 const (
-	host  = "0.beevik-ntp.pool.ntp.org"
-	refID = 0x58585858 // 'XXXX'
+	host       = "0.beevik-ntp.pool.ntp.org"
+	refID      = 0x58585858 // 'XXXX'
+	timeFormat = "Mon Jan 2 2006  15:04:05.99999999  MST"
 )
 
-func isNil(t *testing.T, err error) bool {
+func isNil(t *testing.T, host string, err error) bool {
 	switch {
 	case err == nil:
 		return true
@@ -40,7 +42,7 @@ func isNil(t *testing.T, err error) bool {
 
 func assertValid(t *testing.T, r *Response) {
 	err := r.Validate()
-	_ = isNil(t, err)
+	_ = isNil(t, host, err)
 }
 
 func assertInvalid(t *testing.T, r *Response) {
@@ -53,11 +55,40 @@ func assertInvalid(t *testing.T, r *Response) {
 func TestOnlineTime(t *testing.T) {
 	tm, err := Time(host)
 	now := time.Now()
-	if isNil(t, err) {
-		t.Logf("Local Time %v\n", now)
-		t.Logf("~True Time %v\n", tm)
-		t.Logf("Offset %v\n", tm.Sub(now))
+	if isNil(t, host, err) {
+		t.Logf(" System Time: %s\n", now.Format(timeFormat))
+		t.Logf("  ~True Time: %s\n", tm.Format(timeFormat))
+		t.Logf("~ClockOffset: %v\n", tm.Sub(now))
 	}
+}
+
+func TestOnlineQuery(t *testing.T) {
+	opt := QueryOptions{Version: 4}
+	r, err := QueryWithOptions(host, opt)
+	if !isNil(t, host, err) {
+		return
+	}
+
+	now := time.Now()
+	t.Logf("[%s]    Protocol: v%d", host, opt.Version)
+	t.Logf("[%s] ClockOffset: %v", host, r.ClockOffset)
+	t.Logf("[%s]  SystemTime: %s", host, now.Format(timeFormat))
+	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
+	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
+	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
+	t.Logf("[%s]       RefID: 0x%08x (%s)", host, r.ReferenceID, printableID(r.ReferenceID))
+	t.Logf("[%s]         RTT: %v", host, r.RTT)
+	t.Logf("[%s]        Poll: %v", host, r.Poll)
+	t.Logf("[%s]   Precision: %v", host, r.Precision)
+	t.Logf("[%s]     Stratum: %v", host, r.Stratum)
+	t.Logf("[%s]   RootDelay: %v", host, r.RootDelay)
+	t.Logf("[%s]    RootDisp: %v", host, r.RootDispersion)
+	t.Logf("[%s]    RootDist: %v", host, r.RootDistance)
+	t.Logf("[%s]    MinError: %v", host, r.MinError)
+	t.Logf("[%s]        Leap: %v", host, r.Leap)
+	t.Logf("[%s]    KissCode: %v", host, stringOrEmpty(r.KissCode))
+
+	assertValid(t, r)
 }
 
 func TestOnlineTimeFailure(t *testing.T) {
@@ -75,41 +106,6 @@ func TestOnlineTimeFailure(t *testing.T) {
 	assert.True(t, diffMinutes > -1 && diffMinutes < 1)
 }
 
-func TestOnlineQuery(t *testing.T) {
-	t.Logf("[%s] ----------------------", host)
-	t.Logf("[%s] NTP protocol version %d", host, 4)
-
-	r, err := QueryWithOptions(host, QueryOptions{Version: 4})
-	if !isNil(t, err) {
-		return
-	}
-
-	t.Logf("[%s]  LocalTime: %v", host, time.Now())
-	t.Logf("[%s]   XmitTime: %v", host, r.Time)
-	t.Logf("[%s]    RefTime: %v", host, r.ReferenceTime)
-	t.Logf("[%s]        RTT: %v", host, r.RTT)
-	t.Logf("[%s]     Offset: %v", host, r.ClockOffset)
-	t.Logf("[%s]       Poll: %v", host, r.Poll)
-	t.Logf("[%s]  Precision: %v", host, r.Precision)
-	t.Logf("[%s]    Stratum: %v", host, r.Stratum)
-	t.Logf("[%s]      RefID: 0x%08x", host, r.ReferenceID)
-	t.Logf("[%s]  RootDelay: %v", host, r.RootDelay)
-	t.Logf("[%s]   RootDisp: %v", host, r.RootDispersion)
-	t.Logf("[%s]   RootDist: %v", host, r.RootDistance)
-	t.Logf("[%s]   MinError: %v", host, r.MinError)
-	t.Logf("[%s]       Leap: %v", host, r.Leap)
-	t.Logf("[%s]   KissCode: %v", host, stringOrEmpty(r.KissCode))
-
-	assertValid(t, r)
-}
-
-func stringOrEmpty(s string) string {
-	if s == "" {
-		return "<empty>"
-	}
-	return s
-}
-
 func TestOfflineValidate(t *testing.T) {
 	var m msg
 	var r *Response
@@ -122,24 +118,24 @@ func TestOfflineValidate(t *testing.T) {
 	m.OriginTime = 1 << 32
 	m.ReceiveTime = 1 << 32
 	m.TransmitTime = 1 << 32
-	r = parseTime(&m, 1<<32)
+	r = generateResponse(&m, 1<<32, nil)
 	assertValid(t, r)
 
 	// Negative freshness
 	m.ReferenceTime = 2 << 32
-	r = parseTime(&m, 1<<32)
+	r = generateResponse(&m, 1<<32, nil)
 	assertInvalid(t, r)
 
 	// Unfresh clock (48h)
 	m.OriginTime = 2 * 86400 << 32
 	m.ReceiveTime = 2 * 86400 << 32
 	m.TransmitTime = 2 * 86400 << 32
-	r = parseTime(&m, 2*86400<<32)
+	r = generateResponse(&m, 2*86400<<32, nil)
 	assertInvalid(t, r)
 
 	// Fresh clock (24h)
 	m.ReferenceTime = 1 * 86400 << 32
-	r = parseTime(&m, 2*86400<<32)
+	r = generateResponse(&m, 2*86400<<32, nil)
 	assertValid(t, r)
 
 	// Values indicating a negative RTT
@@ -148,7 +144,7 @@ func TestOfflineValidate(t *testing.T) {
 	m.OriginTime = 20 << 32
 	m.ReceiveTime = 10 << 32
 	m.TransmitTime = 15 << 32
-	r = parseTime(&m, 22<<32)
+	r = generateResponse(&m, 22<<32, nil)
 	assert.NotNil(t, r)
 	assertValid(t, r)
 	assert.Equal(t, r.RTT, 0*time.Second)
@@ -256,7 +252,7 @@ func TestOfflineMinError(t *testing.T) {
 		ReceiveTime:   toNtpTime(start.Add(2 * time.Second)),
 		TransmitTime:  toNtpTime(start.Add(3 * time.Second)),
 	}
-	r := parseTime(m, toNtpTime(start.Add(4*time.Second)))
+	r := generateResponse(m, toNtpTime(start.Add(4*time.Second)), nil)
 	assertValid(t, r)
 	assert.Equal(t, r.MinError, time.Duration(0))
 
@@ -267,7 +263,7 @@ func TestOfflineMinError(t *testing.T) {
 					m.OriginTime = toNtpTime(start.Add(org))
 					m.ReceiveTime = toNtpTime(start.Add(rec))
 					m.TransmitTime = toNtpTime(start.Add(xmt))
-					r = parseTime(m, toNtpTime(start.Add(dst)))
+					r = generateResponse(m, toNtpTime(start.Add(dst)), nil)
 					assertValid(t, r)
 					var error0, error1 time.Duration
 					if org >= rec {
@@ -355,4 +351,97 @@ func TestOfflineCustomDialer(t *testing.T) {
 	assert.Nil(t, r)
 	assert.Equal(t, notDialingErr, err)
 	assert.True(t, dialerCalled)
+}
+
+func TestOnlineAuthenticatedQuery(t *testing.T) {
+	// By default, this unit test is skipped, because it requires a local NTP
+	// server to be running and configured with known symmetric authentication
+	// keys.
+	//
+	// To run this test, you must execute go test with "-args test_auth". For
+	// example:
+	//
+	//    go test -v -run TestOnlineAuthenticatedQuery -args test_auth
+	//
+	// You must also run a localhost NTP server configured with the following
+	// trusted symmetric keys:
+	//
+	// ID   TYPE       KEY
+	// --   ----       ---
+	// 1    MD5        cvuZyN4C8HX8hNcAWDWp
+	// 2    SHA1       6931564b4a5a5045766c55356b30656c7666316c
+
+	skip := true
+	for _, arg := range os.Args[1:] {
+		if arg == "test_auth" {
+			skip = false
+		}
+	}
+	if skip {
+		t.Skip("Skipping authentication tests. Enable with -args test_auth")
+		return
+	}
+
+	cases := []struct {
+		Type        AuthType
+		Key         string
+		KeyID       uint16
+		ExpectedErr error
+	}{
+		// KeyID 1 (MD5)
+		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 1, nil},
+		{AuthMD5, "6376755a794e344338485838684e634157445770", 1, nil},
+		{AuthMD5, "", 1, ErrInvalidAuthKey},
+		{AuthMD5, "XvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
+		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 2, ErrAuthFailed},
+		{AuthSHA1, "cvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
+
+		// KeyID 2 (SHA1)
+		{AuthSHA1, "6931564b4a5a5045766c55356b30656c7666316c", 2, nil},
+		{AuthSHA1, "i1VKJZPEvlU5k0elvf1l", 2, nil},
+		{AuthSHA1, "", 2, ErrInvalidAuthKey},
+		{AuthSHA1, "0031564b4a5a5045766c55356b30656c7666316c", 2, ErrAuthFailed},
+		{AuthSHA1, "6931564b4a5a5045766c55356b30656c7666316c", 1, ErrAuthFailed},
+		{AuthMD5, "6931564b4a5a5045766c55356b30656c7666316c", 2, ErrAuthFailed},
+	}
+
+	host := "localhost"
+	for i, c := range cases {
+		opt := QueryOptions{
+			Auth: AuthOptions{c.Type, c.Key, c.KeyID},
+		}
+		r, err := QueryWithOptions(host, opt)
+		if isNil(t, host, err) {
+			err = r.Validate()
+			if err != c.ExpectedErr {
+				t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
+			}
+		}
+	}
+}
+
+func printableID(id uint32) string {
+	isPrintable := func(ch rune) bool { return ch >= 32 && ch <= 126 }
+
+	r := []rune{
+		rune(byte(id >> 24)),
+		rune(byte(id >> 16)),
+		rune(byte(id >> 8)),
+		rune(byte(id)),
+	}
+
+	const dot = rune(0x22c5)
+	for i := range r {
+		if !isPrintable(r[i]) {
+			r[i] = dot
+		}
+	}
+	return string(r)
+}
+
+func stringOrEmpty(s string) string {
+	if s == "" {
+		return "<empty>"
+	}
+	return s
 }

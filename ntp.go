@@ -12,20 +12,30 @@ package ntp
 
 import (
 	"bytes"
-	"crypto/md5"
 	"crypto/rand"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/binary"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"time"
 
 	"golang.org/x/net/ipv4"
+)
+
+var (
+	ErrAuthFailed             = errors.New("authentication failed")
+	ErrInvalidAuthKey         = errors.New("invalid authentication key")
+	ErrInvalidDispersion      = errors.New("invalid dispersion in response")
+	ErrInvalidLeapSecond      = errors.New("invalid leap second in response")
+	ErrInvalidMode            = errors.New("invalid mode in response")
+	ErrInvalidProtocolVersion = errors.New("invalid protocol version requested")
+	ErrInvalidStratum         = errors.New("invalid stratum in response")
+	ErrInvalidTime            = errors.New("invalid time reported")
+	ErrInvalidTransmitTime    = errors.New("invalid transmit time in response")
+	ErrKissOfDeath            = errors.New("kiss of death received")
+	ErrServerClockFreshness   = errors.New("server clock not fresh")
+	ErrServerResponseMismatch = errors.New("server response didn't match request")
+	ErrServerTickedBackwards  = errors.New("server clock ticked backwards")
 )
 
 // The LeapIndicator is used to warn if a leap second should be inserted
@@ -56,8 +66,6 @@ const (
 	maxDispersion     = 16 * time.Second
 )
 
-var ErrNotSupportCryptoMethod = errors.New("Not Support Crypto Method , only support md5, sha1, sha256, sha512")
-
 // Internal variables
 var (
 	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -75,13 +83,6 @@ const (
 	broadcast
 	controlMessage
 	reservedPrivate
-)
-
-const (
-	CryptoMd5 = 1 << iota
-	CryptoSha1
-	CryptoSha256
-	CryptoSha512
 )
 
 // An ntpTime is a 64-bit fixed-point (Q32.32) representation of the number of
@@ -135,7 +136,7 @@ func (t ntpTimeShort) Duration() time.Duration {
 	return time.Duration(sec + nsec)
 }
 
-// msg is an internal representation of an NTP packet.
+// msg is an internal representation of an NTP packet header.
 type msg struct {
 	LiVnMode       uint8 // Leap Indicator (2) + Version (3) + Mode (3)
 	Stratum        uint8
@@ -148,12 +149,6 @@ type msg struct {
 	OriginTime     ntpTime
 	ReceiveTime    ntpTime
 	TransmitTime   ntpTime
-}
-
-type Authentication struct {
-	KeyID          uint32 // key id
-	CryptoMethod   int    // only support md5 and sha1
-	Authentication string // the crypto string
 }
 
 // setVersion sets the NTP protocol version on the message.
@@ -193,19 +188,13 @@ type dialFn func(laddr string, lport int, raddr string, rport int) (net.Conn, er
 // QueryOptions contains configurable options used by the QueryWithOptions
 // function.
 type QueryOptions struct {
-	Timeout        time.Duration  // connection timeout, defaults to 5 seconds
-	Version        int            // NTP protocol version, defaults to 4
-	LocalAddress   string         // address to use for the local system
-	Port           int            // remote server port, defaults to 123
-	TTL            int            // IP TTL to use, defaults to system default
-	Dial           dialFn         // overrides the default UDP dialer
-	authentication Authentication // ntp auth
-	needAuth       bool           // is need auth
-}
-
-func (q *QueryOptions) EnableAuthentication(authentication Authentication) {
-	q.needAuth = true
-	q.authentication = authentication
+	Timeout      time.Duration // connection timeout, defaults to 5 seconds
+	Version      int           // NTP protocol version, defaults to 4
+	LocalAddress string        // address to use for the local system
+	Port         int           // remote server port, defaults to 123
+	TTL          int           // IP TTL to use, defaults to system default
+	Auth         AuthOptions   // used to configure authentication
+	Dial         dialFn        // overrides the default UDP dialer
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -274,29 +263,31 @@ type Response struct {
 	// Poll is the maximum interval between successive NTP polling messages.
 	// It is not relevant for simple NTP clients like this one.
 	Poll time.Duration
+
+	authErr error
 }
 
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
 func (r *Response) Validate() error {
-	// Handle invalid stratum values.
-	if r.Stratum == 0 {
-		return fmt.Errorf("kiss of death received: %s", r.KissCode)
-	}
-	if r.Stratum >= maxStratum {
-		return errors.New("invalid stratum in response")
+	// Forward authentication errors.
+	if r.authErr != nil {
+		return r.authErr
 	}
 
-	// Handle invalid leap second indicator.
-	if r.Leap == LeapNotInSync {
-		return errors.New("invalid leap second")
+	// Handle invalid stratum values.
+	if r.Stratum == 0 {
+		return ErrKissOfDeath
+	}
+	if r.Stratum >= maxStratum {
+		return ErrInvalidStratum
 	}
 
 	// Estimate the "freshness" of the time. If it exceeds the maximum
 	// polling interval (~36 hours), then it cannot be considered "fresh".
 	freshness := r.Time.Sub(r.ReferenceTime)
 	if freshness > maxPollInterval {
-		return errors.New("server clock not fresh")
+		return ErrServerClockFreshness
 	}
 
 	// Calculate the peer synchronization distance, lambda:
@@ -306,13 +297,18 @@ func (r *Response) Validate() error {
 	// https://tools.ietf.org/html/rfc5905#appendix-A.5.1.1.
 	lambda := r.RootDelay/2 + r.RootDispersion
 	if lambda > maxDispersion {
-		return errors.New("invalid dispersion")
+		return ErrInvalidDispersion
 	}
 
 	// If the server's transmit time is before its reference time, the
 	// response is invalid.
 	if r.Time.Before(r.ReferenceTime) {
-		return errors.New("invalid time reported")
+		return ErrInvalidTime
+	}
+
+	// Handle invalid leap second indicator.
+	if r.Leap == LeapNotInSync {
+		return ErrInvalidLeapSecond
 	}
 
 	// nil means the response is valid.
@@ -330,10 +326,11 @@ func Query(host string) (*Response, error) {
 // customization of several query options.
 func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 	m, now, err := getTime(host, opt)
-	if err != nil {
+	if err != nil && err != ErrAuthFailed {
 		return nil, err
 	}
-	return parseTime(m, now), nil
+
+	return generateResponse(m, now, err), nil
 }
 
 // Time returns the current local time using information returned from the
@@ -364,7 +361,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		opt.Version = defaultNtpVersion
 	}
 	if opt.Version < 2 || opt.Version > 4 {
-		return nil, 0, errors.New("invalid protocol version requested")
+		return nil, 0, ErrInvalidProtocolVersion
 	}
 	if opt.Port == 0 {
 		opt.Port = 123
@@ -389,79 +386,101 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		}
 	}
 
+	// If using authentication, decode the auth key string.
+	var decodedAuthKey []byte
+	if opt.Auth.Type != AuthNone {
+		decodedAuthKey, err = decodeAuthKey(opt.Auth)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
 	// Set a timeout on the connection.
 	con.SetDeadline(time.Now().Add(opt.Timeout))
 
-	// Allocate a message to hold the response.
-	recvMsg := new(msg)
-
-	// Allocate a message to hold the query.
+	// Allocate a message to hold the query datagram.
 	xmitMsg := new(msg)
 	xmitMsg.setMode(client)
 	xmitMsg.setVersion(opt.Version)
 	xmitMsg.setLeap(LeapNotInSync)
 
-	// To ensure privacy and prevent spoofing, try to use a random 64-bit
-	// value for the TransmitTime. If crypto/rand couldn't generate a
-	// random value, fall back to using the system clock. Keep track of
-	// when the messsage was actually transmitted.
+	// Allocate a buffer and message to hold the response datagram.
+	recvBuf := make([]byte, 1024)
+	recvMsg := new(msg)
+
+	// To aid privacy and prevent spoofing, try to use a random 64-bit value
+	// for the TransmitTime. If crypto/rand couldn't generate a random value
+	// (highly unlikely), fall back to using the system clock.
 	bits := make([]byte, 8)
 	_, err = rand.Read(bits)
-	var xmitTime time.Time
 	if err == nil {
 		xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
-		xmitTime = time.Now()
 	} else {
-		xmitTime = time.Now()
-		xmitMsg.TransmitTime = toNtpTime(xmitTime)
+		xmitMsg.TransmitTime = toNtpTime(time.Now())
 	}
 
-	var buf = &bytes.Buffer{}
-	// Transmit the query.
-	err = binary.Write(buf, binary.BigEndian, xmitMsg)
+	// Write the query to a transmit buffer.
+	var xmitBuf bytes.Buffer
+	binary.Write(&xmitBuf, binary.BigEndian, xmitMsg)
+	if opt.Auth.Type != AuthNone {
+		appendMAC(&xmitBuf, opt.Auth, decodedAuthKey)
+	}
+
+	// Transmit the query and keep track of when it was transmitted.
+	xmitTime := time.Now()
+	_, err = con.Write(xmitBuf.Bytes())
 	if err != nil {
 		return nil, 0, err
 	}
-
-	if opt.needAuth {
-		if err = writeAuthenMsgToConn(buf, buf.Bytes(), opt.authentication); err != nil {
-			return nil, 0, err
-		}
-	}
-
-	con.Write(buf.Bytes())
 
 	// Receive the response.
-	err = binary.Read(con, binary.BigEndian, recvMsg)
+	recvBytes, err := con.Read(recvBuf)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Keep track of the time the response was received. As of go 1.9,
-	// time.Since assumes a monotonic clock, so delta cannot be less than
-	// zero.
+	// Keep track of the time the response was received. As of go 1.9, the
+	// time package assumes a monotonic clock, so delta will never be less
+	// than zero for go version 1.9 or higher.
 	delta := time.Since(xmitTime)
-	recvTime := toNtpTime(xmitTime.Add(delta))
+	if delta < 0 {
+		delta = 0
+	}
+	recvTime := xmitTime.Add(delta)
+
+	// Deserialize the response.
+	recvBuf = recvBuf[:recvBytes]
+	recvReader := bytes.NewReader(recvBuf)
+	err = binary.Read(recvReader, binary.BigEndian, recvMsg)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// If authentication is being used, the response must contain a valid MAC.
+	var authErr error
+	if opt.Auth.Type != AuthNone {
+		authErr = verifyMAC(recvBuf, opt.Auth, decodedAuthKey)
+	}
 
 	// Check for invalid fields.
 	if recvMsg.getMode() != server {
-		return nil, 0, errors.New("invalid mode in response")
+		return nil, 0, ErrInvalidMode
 	}
 	if recvMsg.TransmitTime == ntpTime(0) {
-		return nil, 0, errors.New("invalid transmit time in response")
+		return nil, 0, ErrInvalidTransmitTime
 	}
 	if recvMsg.OriginTime != xmitMsg.TransmitTime {
-		return nil, 0, errors.New("server response mismatch")
+		return nil, 0, ErrServerResponseMismatch
 	}
 	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
-		return nil, 0, errors.New("server clock ticked backwards")
+		return nil, 0, ErrServerTickedBackwards
 	}
 
 	// Correct the received message's origin time using the actual
 	// transmit time.
 	recvMsg.OriginTime = toNtpTime(xmitTime)
 
-	return recvMsg, recvTime, nil
+	return recvMsg, toNtpTime(recvTime), authErr
 }
 
 // defaultDial provides a UDP dialer based on Go's built-in net stack.
@@ -484,9 +503,9 @@ func defaultDial(localAddr string, localPort int, remoteAddr string, remotePort 
 	return net.DialUDP("udp", laddr, raddr)
 }
 
-// parseTime parses the NTP packet along with the packet receive time to
-// generate a Response record.
-func parseTime(m *msg, recvTime ntpTime) *Response {
+// generateResponse processes NTP message fields along with the its receive
+// time to generate a Response record.
+func generateResponse(m *msg, recvTime ntpTime, authErr error) *Response {
 	r := &Response{
 		Time:           m.TransmitTime.Time(),
 		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
@@ -500,6 +519,7 @@ func parseTime(m *msg, recvTime ntpTime) *Response {
 		Leap:           m.getLeap(),
 		MinError:       minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Poll:           toInterval(m.Poll),
+		authErr:        authErr,
 	}
 
 	// Calculate values depending on other calculated values
@@ -604,61 +624,4 @@ func kissCode(id uint32) string {
 		}
 	}
 	return string(b)
-}
-
-func writeAuthenMsgToConn(con io.Writer, content []byte, authentication Authentication) error {
-	var err error
-	// write key id
-	if err = binary.Write(con, binary.BigEndian, authentication.KeyID); err != nil {
-		return err
-	}
-	switch {
-	case authentication.CryptoMethod&CryptoMd5 == CryptoMd5:
-		err = binary.Write(con, binary.BigEndian, getDigestByMd5(content, []byte(authentication.Authentication)))
-
-	case authentication.CryptoMethod&CryptoSha1 == CryptoSha1:
-		err = binary.Write(con, binary.BigEndian, getDigestBySha1(content, []byte(authentication.Authentication)))
-
-	case authentication.CryptoMethod&CryptoSha256 == CryptoSha256:
-		err = binary.Write(con, binary.BigEndian, getDigestBySha256(content, []byte(authentication.Authentication)))
-
-	case authentication.CryptoMethod&CryptoSha512 == CryptoSha512:
-		err = binary.Write(con, binary.BigEndian, getDigestSha512(content, []byte(authentication.Authentication)))
-
-	default:
-		return ErrNotSupportCryptoMethod
-	}
-
-	return err
-}
-
-// get md5 crypto  digest
-func getDigestByMd5(content []byte, cryptoBytes []byte) [16]byte {
-	data := append(cryptoBytes, content...)
-	// 计算哈希值并返回
-	hash := md5.Sum(data)
-	return hash
-}
-
-// get sha1 crypto digest
-func getDigestBySha1(content []byte, cryptoBytes []byte) [20]byte {
-	data := append(cryptoBytes, content...)
-	hash := sha1.Sum(data)
-	return hash
-}
-
-// get sha256 crypto digest
-func getDigestBySha256(content []byte, cryptoBytes []byte) [32]byte {
-	data := append(cryptoBytes, content...)
-	hash := sha256.Sum256(data)
-
-	return hash
-}
-
-// get sha512 crypto digest
-func getDigestSha512(content []byte, cryptoBytes []byte) [64]byte {
-	data := append(content, cryptoBytes...)
-	hash := sha512.Sum512(data)
-
-	return hash
 }
