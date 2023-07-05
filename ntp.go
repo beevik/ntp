@@ -17,6 +17,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -703,7 +704,7 @@ func verifyMAC(buf []byte, opt AuthOptions) error {
 	}
 
 	// The calculated digest must be the same as the server-generated digest.
-	if !bytes.Equal(digest, mac[4:]) {
+	if subtle.ConstantTimeCompare(digest, mac[4:]) != 1 {
 		return ErrAuthFailed
 	}
 
