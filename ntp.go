@@ -717,8 +717,13 @@ func verifyMAC(buf []byte, opt AuthOptions) error {
 	case AuthSHA1:
 		d := sha1.Sum(data)
 		digest = d[:]
+	case AuthSHA256:
+		d := sha256.Sum256(data)
+		digest = d[:20]
+	case AuthSHA512:
+		d := sha512.Sum512(data)
+		digest = d[:20]
 	}
-
 	// The calculated digest must be the same as the server-generated digest.
 	if subtle.ConstantTimeCompare(digest, mac[4:]) != 1 {
 		return ErrAuthFailed
