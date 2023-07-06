@@ -19,6 +19,7 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"net"
 	"strconv"
@@ -40,6 +41,7 @@ var (
 	ErrServerClockFreshness   = errors.New("server clock not fresh")
 	ErrServerResponseMismatch = errors.New("server response didn't match request")
 	ErrServerTickedBackwards  = errors.New("server clock ticked backwards")
+	ErrInvalidAuthenCode      = errors.New("invalid authentication code")
 )
 
 // The LeapIndicator is used to warn if a leap second should be inserted
@@ -641,24 +643,44 @@ func kissCode(id uint32) string {
 	return string(b)
 }
 
-func appendMAC(buf *bytes.Buffer, opt AuthOptions) {
+func appendMAC(buf *bytes.Buffer, opt AuthOptions) error {
 	// Calculate the digest of key+header, then write the MAC consisting of
 	// keyID+digest.
 	header := buf.Bytes()
-	data := append([]byte(opt.Key), header...)
 	binary.Write(buf, binary.BigEndian, uint32(opt.KeyID))
 	switch opt.Type {
 	case AuthMD5:
-		binary.Write(buf, binary.BigEndian, md5.Sum(data))
+		// md5 crypto , the key is string, can convert to []byte
+		data := calculateMACString(opt.Key, header)
+		return binary.Write(buf, binary.BigEndian, md5.Sum(data))
 	case AuthSHA1:
+		data := calculateMACHexString(opt.Key, header)
 		binary.Write(buf, binary.BigEndian, sha1.Sum(data))
 	case AuthSHA256:
+		data := calculateMACString(opt.Key, header)
 		digest := sha256.Sum256(data)
 		binary.Write(buf, binary.BigEndian, digest[:20])
 	case AuthSHA512:
+		data := calculateMACString(opt.Key, header)
 		digest := sha512.Sum512(data)
 		binary.Write(buf, binary.BigEndian, digest[:20])
 	}
+
+	return nil
+}
+
+// calculate MAC for message use key as string
+func calculateMACString(key string, buf []byte) []byte {
+	return append([]byte(key), buf...)
+}
+
+func calculateMACHexString(key string, buf []byte) []byte {
+	keyHexSlice, err := hex.DecodeString(key)
+	if err != nil {
+		panic(err)
+	}
+
+	return append(keyHexSlice, buf...)
 }
 
 func verifyMAC(buf []byte, opt AuthOptions) error {
@@ -695,12 +717,6 @@ func verifyMAC(buf []byte, opt AuthOptions) error {
 	case AuthSHA1:
 		d := sha1.Sum(data)
 		digest = d[:]
-	case AuthSHA256:
-		d := sha256.Sum256(data)
-		digest = d[:20]
-	case AuthSHA512:
-		d := sha512.Sum512(data)
-		digest = d[:20]
 	}
 
 	// The calculated digest must be the same as the server-generated digest.
