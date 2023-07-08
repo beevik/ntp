@@ -6,6 +6,7 @@ package ntp
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -17,21 +18,21 @@ import (
 
 const (
 	host       = "0.beevik-ntp.pool.ntp.org"
-	refID      = 0x58585858 // 'XXXX'
-	timeFormat = "Mon Jan 2 2006  15:04:05.99999999  MST"
+	refID      = 0xc0a80001
+	timeFormat = "Mon Jan _2 2006  15:04:05.99999999 (MST)"
 )
 
 func isNil(t *testing.T, host string, err error) bool {
 	switch {
 	case err == nil:
 		return true
+	case err == ErrKissOfDeath:
+		// log instead of error, so test isn't failed
+		t.Logf("[%s] Query kiss of death (ignored)", host)
+		return false
 	case strings.Contains(err.Error(), "timeout"):
 		// log instead of error, so test isn't failed
-		t.Logf("[%s] Query timeout: %s", host, err)
-		return false
-	case strings.Contains(err.Error(), "kiss of death"):
-		// log instead of error, so test isn't failed
-		t.Logf("[%s] Query kiss of death: %s", host, err)
+		t.Logf("[%s] Query timeout (ignored): %s", host, err)
 		return false
 	default:
 		// error, so test fails
@@ -76,7 +77,7 @@ func TestOnlineQuery(t *testing.T) {
 	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
 	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
 	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
-	t.Logf("[%s]       RefID: 0x%08x (%s)", host, r.ReferenceID, printableID(r.ReferenceID))
+	t.Logf("[%s]       RefID: 0x%08x (%s)", host, r.ReferenceID, parseRefID(r.ReferenceID, r.Stratum))
 	t.Logf("[%s]         RTT: %v", host, r.RTT)
 	t.Logf("[%s]        Poll: %v", host, r.Poll)
 	t.Logf("[%s]   Precision: %v", host, r.Precision)
@@ -159,6 +160,11 @@ func TestOnlineBadServerPort(t *testing.T) {
 }
 
 func TestOnlineTTL(t *testing.T) {
+	if host == "localhost" {
+		t.Skip("TTL test not available with localhost NTP server.")
+		return
+	}
+
 	// TTL of 1 should cause a timeout.
 	tm, _, err := getTime(host, QueryOptions{TTL: 1})
 	assert.Nil(t, tm)
@@ -166,6 +172,11 @@ func TestOnlineTTL(t *testing.T) {
 }
 
 func TestOnlineQueryTimeout(t *testing.T) {
+	if host == "localhost" {
+		t.Skip("Timeout test not available with localhost NTP server.")
+		return
+	}
+
 	// Force an immediate timeout.
 	tm, err := QueryWithOptions(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
 	assert.Nil(t, tm)
@@ -392,6 +403,8 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 1, nil},
 		{AuthMD5, "6376755a794e344338485838684e634157445770", 1, nil},
 		{AuthMD5, "", 1, ErrInvalidAuthKey},
+		{AuthMD5, "6376755a794e344338485838684e63415744577", 1, ErrInvalidAuthKey},
+		{AuthMD5, "6376755a794e344338485838684e63415744577g", 1, ErrInvalidAuthKey},
 		{AuthMD5, "XvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
 		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 2, ErrAuthFailed},
 		{AuthSHA1, "cvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
@@ -408,9 +421,13 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 	host := "localhost"
 	for i, c := range cases {
 		opt := QueryOptions{
-			Auth: AuthOptions{c.Type, c.Key, c.KeyID},
+			Timeout: 1 * time.Second,
+			Auth:    AuthOptions{c.Type, c.Key, c.KeyID},
 		}
 		r, err := QueryWithOptions(host, opt)
+		if c.ExpectedErr != nil && c.ExpectedErr == err {
+			continue
+		}
 		if isNil(t, host, err) {
 			err = r.Validate()
 			if err != c.ExpectedErr {
@@ -420,23 +437,26 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 	}
 }
 
-func printableID(id uint32) string {
-	isPrintable := func(ch rune) bool { return ch >= 32 && ch <= 126 }
-
-	r := []rune{
-		rune(byte(id >> 24)),
-		rune(byte(id >> 16)),
-		rune(byte(id >> 8)),
-		rune(byte(id)),
+func parseRefID(id uint32, stratum uint8) string {
+	if stratum == 0 {
+		return "<kiss>"
 	}
 
-	const dot = rune(0x22c5)
-	for i := range r {
-		if !isPrintable(r[i]) {
-			r[i] = dot
+	isPrintable := func(ch byte) bool { return ch >= 32 && ch <= 126 }
+
+	b := []byte{
+		byte(id >> 24),
+		byte(id >> 16),
+		byte(id >> 8),
+		byte(id),
+	}
+
+	for i := range b {
+		if !isPrintable(b[i]) {
+			return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
 		}
 	}
-	return string(r)
+	return fmt.Sprintf(".%s.", string(b))
 }
 
 func stringOrEmpty(s string) string {
