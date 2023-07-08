@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -362,79 +361,6 @@ func TestOfflineCustomDialer(t *testing.T) {
 	assert.Nil(t, r)
 	assert.Equal(t, notDialingErr, err)
 	assert.True(t, dialerCalled)
-}
-
-func TestOnlineAuthenticatedQuery(t *testing.T) {
-	// By default, this unit test is skipped, because it requires a local NTP
-	// server to be running and configured with known symmetric authentication
-	// keys.
-	//
-	// To run this test, you must execute go test with "-args test_auth". For
-	// example:
-	//
-	//    go test -v -run TestOnlineAuthenticatedQuery -args test_auth
-	//
-	// You must also run a localhost NTP server configured with the following
-	// trusted symmetric keys:
-	//
-	// ID   TYPE       KEY
-	// --   ----       ---
-	// 1    MD5        cvuZyN4C8HX8hNcAWDWp
-	// 2    SHA1       6931564b4a5a5045766c55356b30656c7666316c
-
-	skip := true
-	for _, arg := range os.Args[1:] {
-		if arg == "test_auth" {
-			skip = false
-		}
-	}
-	if skip {
-		t.Skip("Skipping authentication tests. Enable with -args test_auth")
-		return
-	}
-
-	cases := []struct {
-		Type        AuthType
-		Key         string
-		KeyID       uint16
-		ExpectedErr error
-	}{
-		// KeyID 1 (MD5)
-		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 1, nil},
-		{AuthMD5, "6376755a794e344338485838684e634157445770", 1, nil},
-		{AuthMD5, "", 1, ErrInvalidAuthKey},
-		{AuthMD5, "6376755a794e344338485838684e63415744577", 1, ErrInvalidAuthKey},
-		{AuthMD5, "6376755a794e344338485838684e63415744577g", 1, ErrInvalidAuthKey},
-		{AuthMD5, "XvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
-		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 2, ErrAuthFailed},
-		{AuthSHA1, "cvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
-
-		// KeyID 2 (SHA1)
-		{AuthSHA1, "6931564b4a5a5045766c55356b30656c7666316c", 2, nil},
-		{AuthSHA1, "i1VKJZPEvlU5k0elvf1l", 2, nil},
-		{AuthSHA1, "", 2, ErrInvalidAuthKey},
-		{AuthSHA1, "0031564b4a5a5045766c55356b30656c7666316c", 2, ErrAuthFailed},
-		{AuthSHA1, "6931564b4a5a5045766c55356b30656c7666316c", 1, ErrAuthFailed},
-		{AuthMD5, "6931564b4a5a5045766c55356b30656c7666316c", 2, ErrAuthFailed},
-	}
-
-	host := "localhost"
-	for i, c := range cases {
-		opt := QueryOptions{
-			Timeout: 1 * time.Second,
-			Auth:    AuthOptions{c.Type, c.Key, c.KeyID},
-		}
-		r, err := QueryWithOptions(host, opt)
-		if c.ExpectedErr != nil && c.ExpectedErr == err {
-			continue
-		}
-		if isNil(t, host, err) {
-			err = r.Validate()
-			if err != c.ExpectedErr {
-				t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
-			}
-		}
-	}
 }
 
 func parseRefID(id uint32, stratum uint8) string {

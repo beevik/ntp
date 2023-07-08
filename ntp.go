@@ -193,7 +193,7 @@ type QueryOptions struct {
 	LocalAddress string        // address to use for the local system
 	Port         int           // remote server port, defaults to 123
 	TTL          int           // IP TTL to use, defaults to system default
-	Auth         AuthOptions   // used to configure authentication
+	Auth         AuthOptions   // configures symmetric key authentication
 	Dial         dialFn        // overrides the default UDP dialer
 }
 
@@ -260,8 +260,8 @@ type Response struct {
 	// codes, see https://tools.ietf.org/html/rfc5905#section-7.4.
 	KissCode string
 
-	// Poll is the maximum interval between successive NTP polling messages.
-	// It is not relevant for simple NTP clients like this one.
+	// Poll is the maximum interval between successive NTP query messages to
+	// the server.
 	Poll time.Duration
 
 	authErr error
@@ -386,7 +386,8 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		}
 	}
 
-	// If using authentication, decode and validate the auth key string.
+	// If using symmetric key authentication, decode and validate the auth key
+	// string.
 	var decodedAuthKey []byte
 	if opt.Auth.Type != AuthNone {
 		decodedAuthKey, err = decodeAuthKey(opt.Auth)
