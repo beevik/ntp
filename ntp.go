@@ -136,8 +136,8 @@ func (t ntpTimeShort) Duration() time.Duration {
 	return time.Duration(sec + nsec)
 }
 
-// msg is an internal representation of an NTP packet header.
-type msg struct {
+// header is an internal representation of an NTP packet header.
+type header struct {
 	LiVnMode       uint8 // Leap Indicator (2) + Version (3) + Mode (3)
 	Stratum        uint8
 	Poll           int8
@@ -145,35 +145,35 @@ type msg struct {
 	RootDelay      ntpTimeShort
 	RootDispersion ntpTimeShort
 	ReferenceID    uint32
-	ReferenceTime  ntpTime
+	ReferenceTime  ntpTime ``
 	OriginTime     ntpTime
 	ReceiveTime    ntpTime
 	TransmitTime   ntpTime
 }
 
-// setVersion sets the NTP protocol version on the message.
-func (m *msg) setVersion(v int) {
-	m.LiVnMode = (m.LiVnMode & 0xc7) | uint8(v)<<3
+// setVersion sets the NTP protocol version on the header.
+func (h *header) setVersion(v int) {
+	h.LiVnMode = (h.LiVnMode & 0xc7) | uint8(v)<<3
 }
 
-// setMode sets the NTP protocol mode on the message.
-func (m *msg) setMode(md mode) {
-	m.LiVnMode = (m.LiVnMode & 0xf8) | uint8(md)
+// setMode sets the NTP protocol mode on the header.
+func (h *header) setMode(md mode) {
+	h.LiVnMode = (h.LiVnMode & 0xf8) | uint8(md)
 }
 
-// setLeap modifies the leap indicator on the message.
-func (m *msg) setLeap(li LeapIndicator) {
-	m.LiVnMode = (m.LiVnMode & 0x3f) | uint8(li)<<6
+// setLeap modifies the leap indicator on the header.
+func (h *header) setLeap(li LeapIndicator) {
+	h.LiVnMode = (h.LiVnMode & 0x3f) | uint8(li)<<6
 }
 
-// getMode returns the mode value in the message.
-func (m *msg) getMode() mode {
-	return mode(m.LiVnMode & 0x07)
+// getMode returns the mode value in the header.
+func (h *header) getMode() mode {
+	return mode(h.LiVnMode & 0x07)
 }
 
-// getLeap returns the leap indicator on the message.
-func (m *msg) getLeap() LeapIndicator {
-	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
+// getLeap returns the leap indicator on the header.
+func (h *header) getLeap() LeapIndicator {
+	return LeapIndicator((h.LiVnMode >> 6) & 0x03)
 }
 
 // dialFn is a function used to override the QueryWithOptions function's
@@ -325,12 +325,12 @@ func Query(host string) (*Response, error) {
 // QueryWithOptions performs the same function as Query but allows for the
 // customization of several query options.
 func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
-	m, now, err := getTime(host, opt)
+	h, now, err := getTime(host, opt)
 	if err != nil && err != ErrAuthFailed {
 		return nil, err
 	}
 
-	return generateResponse(m, now, err), nil
+	return generateResponse(h, now, err), nil
 }
 
 // Time returns the current local time using information returned from the
@@ -351,9 +351,9 @@ func Time(host string) (time.Time, error) {
 	return time.Now().Add(r.ClockOffset), nil
 }
 
-// getTime performs the NTP server query and returns the response message
+// getTime performs the NTP server query and returns the response header
 // along with the local system time it was received.
-func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
+func getTime(host string, opt QueryOptions) (*header, ntpTime, error) {
 	if opt.Timeout == 0 {
 		opt.Timeout = defaultTimeout
 	}
@@ -399,15 +399,16 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	// Set a timeout on the connection.
 	con.SetDeadline(time.Now().Add(opt.Timeout))
 
-	// Allocate a buffer and message to hold the response datagram.
+	// Allocate a buffer to hold the response datagram.
 	recvBuf := make([]byte, 1024)
-	recvMsg := new(msg)
+	recvHdr := new(header)
 
-	// Allocate a message to hold the query datagram.
-	xmitMsg := new(msg)
-	xmitMsg.setMode(client)
-	xmitMsg.setVersion(opt.Version)
-	xmitMsg.Precision = 0x20
+	// Allocate the query message header.
+	xmitHdr := new(header)
+	xmitHdr.setMode(client)
+	xmitHdr.setVersion(opt.Version)
+	xmitHdr.setLeap(LeapNoWarning)
+	xmitHdr.Precision = 0x20
 
 	// To help prevent spoofing and client fingerprinting, use a
 	// cryptographically random 64-bit value for the TransmitTime. See:
@@ -417,11 +418,11 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
+	xmitHdr.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
 
 	// Write the query to a transmit buffer.
 	var xmitBuf bytes.Buffer
-	binary.Write(&xmitBuf, binary.BigEndian, xmitMsg)
+	binary.Write(&xmitBuf, binary.BigEndian, xmitHdr)
 	if opt.Auth.Type != AuthNone {
 		appendMAC(&xmitBuf, opt.Auth, decodedAuthKey)
 	}
@@ -448,10 +449,10 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 	recvTime := xmitTime.Add(delta)
 
-	// Deserialize the response.
+	// Deserialize the response header.
 	recvBuf = recvBuf[:recvBytes]
 	recvReader := bytes.NewReader(recvBuf)
-	err = binary.Read(recvReader, binary.BigEndian, recvMsg)
+	err = binary.Read(recvReader, binary.BigEndian, recvHdr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -463,24 +464,24 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 
 	// Check for invalid fields.
-	if recvMsg.getMode() != server {
+	if recvHdr.getMode() != server {
 		return nil, 0, ErrInvalidMode
 	}
-	if recvMsg.TransmitTime == ntpTime(0) {
+	if recvHdr.TransmitTime == ntpTime(0) {
 		return nil, 0, ErrInvalidTransmitTime
 	}
-	if recvMsg.OriginTime != xmitMsg.TransmitTime {
+	if recvHdr.OriginTime != xmitHdr.TransmitTime {
 		return nil, 0, ErrServerResponseMismatch
 	}
-	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
+	if recvHdr.ReceiveTime > recvHdr.TransmitTime {
 		return nil, 0, ErrServerTickedBackwards
 	}
 
 	// Correct the received message's origin time using the actual
 	// transmit time.
-	recvMsg.OriginTime = toNtpTime(xmitTime)
+	recvHdr.OriginTime = toNtpTime(xmitTime)
 
-	return recvMsg, toNtpTime(recvTime), authErr
+	return recvHdr, toNtpTime(recvTime), authErr
 }
 
 // defaultDial provides a UDP dialer based on Go's built-in net stack.
@@ -503,22 +504,22 @@ func defaultDial(localAddr string, localPort int, remoteAddr string, remotePort 
 	return net.DialUDP("udp", laddr, raddr)
 }
 
-// generateResponse processes NTP message fields along with the its receive
+// generateResponse processes NTP header fields along with the its receive
 // time to generate a Response record.
-func generateResponse(m *msg, recvTime ntpTime, authErr error) *Response {
+func generateResponse(h *header, recvTime ntpTime, authErr error) *Response {
 	r := &Response{
-		Time:           m.TransmitTime.Time(),
-		ClockOffset:    offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		RTT:            rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		Precision:      toInterval(m.Precision),
-		Stratum:        m.Stratum,
-		ReferenceID:    m.ReferenceID,
-		ReferenceTime:  m.ReferenceTime.Time(),
-		RootDelay:      m.RootDelay.Duration(),
-		RootDispersion: m.RootDispersion.Duration(),
-		Leap:           m.getLeap(),
-		MinError:       minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		Poll:           toInterval(m.Poll),
+		Time:           h.TransmitTime.Time(),
+		ClockOffset:    offset(h.OriginTime, h.ReceiveTime, h.TransmitTime, recvTime),
+		RTT:            rtt(h.OriginTime, h.ReceiveTime, h.TransmitTime, recvTime),
+		Precision:      toInterval(h.Precision),
+		Stratum:        h.Stratum,
+		ReferenceID:    h.ReferenceID,
+		ReferenceTime:  h.ReferenceTime.Time(),
+		RootDelay:      h.RootDelay.Duration(),
+		RootDispersion: h.RootDispersion.Duration(),
+		Leap:           h.getLeap(),
+		MinError:       minError(h.OriginTime, h.ReceiveTime, h.TransmitTime, recvTime),
+		Poll:           toInterval(h.Poll),
 		authErr:        authErr,
 	}
 

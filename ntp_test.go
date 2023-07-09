@@ -5,6 +5,7 @@
 package ntp
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -18,7 +19,7 @@ import (
 const (
 	host       = "0.beevik-ntp.pool.ntp.org"
 	refID      = 0xc0a80001
-	timeFormat = "Mon Jan _2 2006  15:04:05.99999999 (MST)"
+	timeFormat = "Mon Jan _2 2006  15:04:05.00000000 (MST)"
 )
 
 func isNil(t *testing.T, host string, err error) bool {
@@ -71,22 +72,22 @@ func TestOnlineQuery(t *testing.T) {
 
 	now := time.Now()
 	t.Logf("[%s]    Protocol: v%d", host, opt.Version)
-	t.Logf("[%s] ClockOffset: %v", host, r.ClockOffset)
+	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset.String())
 	t.Logf("[%s]  SystemTime: %s", host, now.Format(timeFormat))
 	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
 	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
+	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
+	t.Logf("[%s]       RefID: %s (0x%08x)", host, formatRefID(r.ReferenceID, r.Stratum), r.ReferenceID)
 	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
-	t.Logf("[%s]       RefID: 0x%08x (%s)", host, r.ReferenceID, parseRefID(r.ReferenceID, r.Stratum))
-	t.Logf("[%s]         RTT: %v", host, r.RTT)
-	t.Logf("[%s]        Poll: %v", host, r.Poll)
-	t.Logf("[%s]   Precision: %v", host, r.Precision)
-	t.Logf("[%s]     Stratum: %v", host, r.Stratum)
-	t.Logf("[%s]   RootDelay: %v", host, r.RootDelay)
-	t.Logf("[%s]    RootDisp: %v", host, r.RootDispersion)
-	t.Logf("[%s]    RootDist: %v", host, r.RootDistance)
-	t.Logf("[%s]    MinError: %v", host, r.MinError)
-	t.Logf("[%s]        Leap: %v", host, r.Leap)
-	t.Logf("[%s]    KissCode: %v", host, stringOrEmpty(r.KissCode))
+	t.Logf("[%s]         RTT: %s", host, r.RTT.String())
+	t.Logf("[%s]        Poll: %s", host, r.Poll.String())
+	t.Logf("[%s]   Precision: %s", host, r.Precision.String())
+	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay.String())
+	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion.String())
+	t.Logf("[%s]    RootDist: %s", host, r.RootDistance.String())
+	t.Logf("[%s]    MinError: %s", host, r.MinError.String())
+	t.Logf("[%s]        Leap: %d", host, r.Leap)
+	t.Logf("[%s]    KissCode: %s", host, stringOrEmpty(r.KissCode))
 
 	assertValid(t, r)
 }
@@ -107,7 +108,7 @@ func TestOnlineTimeFailure(t *testing.T) {
 }
 
 func TestOfflineValidate(t *testing.T) {
-	var m msg
+	var m header
 	var r *Response
 	m.Stratum = 1
 	m.ReferenceID = refID
@@ -254,7 +255,7 @@ func TestOfflineOffsetCalculationNegative(t *testing.T) {
 
 func TestOfflineMinError(t *testing.T) {
 	start := time.Now()
-	m := &msg{
+	m := &header{
 		Stratum:       1,
 		ReferenceID:   refID,
 		ReferenceTime: toNtpTime(start),
@@ -363,26 +364,33 @@ func TestOfflineCustomDialer(t *testing.T) {
 	assert.True(t, dialerCalled)
 }
 
-func parseRefID(id uint32, stratum uint8) string {
+func formatRefID(id uint32, stratum uint8) string {
 	if stratum == 0 {
 		return "<kiss>"
 	}
 
-	isPrintable := func(ch byte) bool { return ch >= 32 && ch <= 126 }
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, id)
 
-	b := []byte{
-		byte(id >> 24),
-		byte(id >> 16),
-		byte(id >> 8),
-		byte(id),
-	}
-
-	for i := range b {
-		if !isPrintable(b[i]) {
-			return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
+	// Stratum 1 ref IDs typically contain ASCII-encoded string identifiers.
+	if stratum == 1 {
+		const dot = rune(0x22c5)
+		var r []rune
+		for i := range b {
+			if b[i] == 0 {
+				break
+			}
+			if b[i] >= 32 && b[i] <= 126 {
+				r = append(r, rune(b[i]))
+			} else {
+				r = append(r, dot)
+			}
 		}
+		return fmt.Sprintf(".%s.", string(r))
 	}
-	return fmt.Sprintf(".%s.", string(b))
+
+	// Stratum 2+ ref IDs typically contain IPv4 addresses.
+	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
 }
 
 func stringOrEmpty(s string) string {

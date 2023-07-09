@@ -186,10 +186,10 @@ func appendMAC(buf *bytes.Buffer, opt AuthOptions, key []byte) {
 func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
 	// Validate that there are enough bytes at the end of the message to
 	// contain a MAC.
-	const ntpHeaderSize = 48
+	const headerSize = 48
 	a := algorithms[opt.Type]
 	macLen := 4 + a.DigestSize
-	remain := len(buf) - ntpHeaderSize
+	remain := len(buf) - headerSize
 	if remain < macLen || (remain%4) != 0 {
 		return ErrAuthFailed
 	}
