@@ -386,7 +386,7 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 		}
 	}
 
-	// If using authentication, decode the auth key string.
+	// If using authentication, decode and validate the auth key string.
 	var decodedAuthKey []byte
 	if opt.Auth.Type != AuthNone {
 		decodedAuthKey, err = decodeAuthKey(opt.Auth)
@@ -398,29 +398,25 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	// Set a timeout on the connection.
 	con.SetDeadline(time.Now().Add(opt.Timeout))
 
-	// Allocate a message to hold the query datagram.
-	xmitMsg := new(msg)
-	xmitMsg.setMode(client)
-	xmitMsg.setVersion(opt.Version)
-	xmitMsg.setLeap(LeapNoWarning)
-	xmitMsg.Precision = 0x20
-
 	// Allocate a buffer and message to hold the response datagram.
 	recvBuf := make([]byte, 1024)
 	recvMsg := new(msg)
 
-	// To help prevent spoofing and client fingerprinting, use a random 64-bit
-	// value for the TransmitTime. In the highly unlikely event that
-	// crypto/rand couldn't generate a random value, fall back to using the
-	// system clock. See:
+	// Allocate a message to hold the query datagram.
+	xmitMsg := new(msg)
+	xmitMsg.setMode(client)
+	xmitMsg.setVersion(opt.Version)
+	xmitMsg.Precision = 0x20
+
+	// To help prevent spoofing and client fingerprinting, use a
+	// cryptographically random 64-bit value for the TransmitTime. See:
 	// https://www.ietf.org/archive/id/draft-ietf-ntp-data-minimization-04.txt
 	bits := make([]byte, 8)
 	_, err = rand.Read(bits)
-	if err == nil {
-		xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
-	} else {
-		xmitMsg.TransmitTime = toNtpTime(time.Now())
+	if err != nil {
+		return nil, 0, err
 	}
+	xmitMsg.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
 
 	// Write the query to a transmit buffer.
 	var xmitBuf bytes.Buffer
@@ -443,8 +439,8 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	}
 
 	// Keep track of the time the response was received. As of go 1.9, the
-	// time package assumes a monotonic clock, so delta will never be less
-	// than zero for go version 1.9 or higher.
+	// time package uses a monotonic clock, so delta will never be less than
+	// zero for go version 1.9 or higher.
 	delta := time.Since(xmitTime)
 	if delta < 0 {
 		delta = 0
