@@ -402,15 +402,18 @@ func getTime(host string, opt QueryOptions) (*msg, ntpTime, error) {
 	xmitMsg := new(msg)
 	xmitMsg.setMode(client)
 	xmitMsg.setVersion(opt.Version)
-	xmitMsg.setLeap(LeapNotInSync)
+	xmitMsg.setLeap(LeapNoWarning)
+	xmitMsg.Precision = 0x20
 
 	// Allocate a buffer and message to hold the response datagram.
 	recvBuf := make([]byte, 1024)
 	recvMsg := new(msg)
 
-	// To aid privacy and prevent spoofing, try to use a random 64-bit value
-	// for the TransmitTime. If crypto/rand couldn't generate a random value
-	// (highly unlikely), fall back to using the system clock.
+	// To help prevent spoofing and client fingerprinting, use a random 64-bit
+	// value for the TransmitTime. In the highly unlikely event that
+	// crypto/rand couldn't generate a random value, fall back to using the
+	// system clock. See:
+	// https://www.ietf.org/archive/id/draft-ietf-ntp-data-minimization-04.txt
 	bits := make([]byte, 8)
 	_, err = rand.Read(bits)
 	if err == nil {
