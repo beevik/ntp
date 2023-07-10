@@ -53,25 +53,8 @@ func assertInvalid(t *testing.T, r *Response) {
 	}
 }
 
-func TestOnlineTime(t *testing.T) {
-	tm, err := Time(host)
+func logResponse(t *testing.T, r *Response) {
 	now := time.Now()
-	if isNil(t, host, err) {
-		t.Logf(" System Time: %s\n", now.Format(timeFormat))
-		t.Logf("  ~True Time: %s\n", tm.Format(timeFormat))
-		t.Logf("~ClockOffset: %v\n", tm.Sub(now))
-	}
-}
-
-func TestOnlineQuery(t *testing.T) {
-	opt := QueryOptions{Version: 4}
-	r, err := QueryWithOptions(host, opt)
-	if !isNil(t, host, err) {
-		return
-	}
-
-	now := time.Now()
-	t.Logf("[%s]    Protocol: v%d", host, opt.Version)
 	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset.String())
 	t.Logf("[%s]  SystemTime: %s", host, now.Format(timeFormat))
 	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
@@ -88,87 +71,58 @@ func TestOnlineQuery(t *testing.T) {
 	t.Logf("[%s]    MinError: %s", host, r.MinError.String())
 	t.Logf("[%s]        Leap: %d", host, r.Leap)
 	t.Logf("[%s]    KissCode: %s", host, stringOrEmpty(r.KissCode))
-
-	assertValid(t, r)
 }
 
-func TestOnlineTimeFailure(t *testing.T) {
-	// Use a link-local IP address that won't have an NTP server listening
-	// on it. This should return the local system's time.
-	local, err := Time("169.254.122.229")
-	assert.NotNil(t, err)
+func formatRefID(id uint32, stratum uint8) string {
+	if stratum == 0 {
+		return "<kiss>"
+	}
 
-	now := time.Now()
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, id)
 
-	// When the NTP time query fails, it should return the system time.
-	// Compare the "now" system time with the returned time. It should be
-	// about the same.
-	diffMinutes := now.Sub(local).Minutes()
-	assert.True(t, diffMinutes > -1 && diffMinutes < 1)
+	// Stratum 1 ref IDs typically contain ASCII-encoded string identifiers.
+	if stratum == 1 {
+		const dot = rune(0x22c5)
+		var r []rune
+		for i := range b {
+			if b[i] == 0 {
+				break
+			}
+			if b[i] >= 32 && b[i] <= 126 {
+				r = append(r, rune(b[i]))
+			} else {
+				r = append(r, dot)
+			}
+		}
+		return fmt.Sprintf(".%s.", string(r))
+	}
+
+	// Stratum 2+ ref IDs typically contain IPv4 addresses.
+	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
 }
 
-func TestOfflineValidate(t *testing.T) {
-	var m header
-	var r *Response
-	m.Stratum = 1
-	m.ReferenceID = refID
-	m.ReferenceTime = 1 << 32
-	m.Precision = -1 // 500ms
-
-	// Zero RTT
-	m.OriginTime = 1 << 32
-	m.ReceiveTime = 1 << 32
-	m.TransmitTime = 1 << 32
-	r = generateResponse(&m, 1<<32, nil)
-	assertValid(t, r)
-
-	// Negative freshness
-	m.ReferenceTime = 2 << 32
-	r = generateResponse(&m, 1<<32, nil)
-	assertInvalid(t, r)
-
-	// Unfresh clock (48h)
-	m.OriginTime = 2 * 86400 << 32
-	m.ReceiveTime = 2 * 86400 << 32
-	m.TransmitTime = 2 * 86400 << 32
-	r = generateResponse(&m, 2*86400<<32, nil)
-	assertInvalid(t, r)
-
-	// Fresh clock (24h)
-	m.ReferenceTime = 1 * 86400 << 32
-	r = generateResponse(&m, 2*86400<<32, nil)
-	assertValid(t, r)
-
-	// Values indicating a negative RTT
-	m.RootDelay = 16 << 16
-	m.ReferenceTime = 1 << 32
-	m.OriginTime = 20 << 32
-	m.ReceiveTime = 10 << 32
-	m.TransmitTime = 15 << 32
-	r = generateResponse(&m, 22<<32, nil)
-	assert.NotNil(t, r)
-	assertValid(t, r)
-	assert.Equal(t, r.RTT, 0*time.Second)
-	assert.Equal(t, r.RootDistance, 8*time.Second)
+func stringOrEmpty(s string) string {
+	if s == "" {
+		return "<empty>"
+	}
+	return s
 }
 
 func TestOnlineBadServerPort(t *testing.T) {
 	// Not NTP port.
-	tm, _, err := getTime(host, QueryOptions{Port: 9})
+	tm, _, err := getTime(host+":9", QueryOptions{Timeout: 1 * time.Second})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
 
-func TestOnlineTTL(t *testing.T) {
-	if host == "localhost" {
-		t.Skip("TTL test not available with localhost NTP server.")
+func TestOnlineQuery(t *testing.T) {
+	r, err := QueryWithOptions(host, QueryOptions{})
+	if !isNil(t, host, err) {
 		return
 	}
-
-	// TTL of 1 should cause a timeout.
-	tm, _, err := getTime(host, QueryOptions{TTL: 1})
-	assert.Nil(t, tm)
-	assert.NotNil(t, err)
+	assertValid(t, r)
+	logResponse(t, r)
 }
 
 func TestOnlineQueryTimeout(t *testing.T) {
@@ -178,79 +132,157 @@ func TestOnlineQueryTimeout(t *testing.T) {
 	}
 
 	// Force an immediate timeout.
-	tm, err := QueryWithOptions(host, QueryOptions{Version: 4, Timeout: time.Nanosecond})
-	assert.Nil(t, tm)
+	r, err := QueryWithOptions(host, QueryOptions{Timeout: time.Nanosecond})
+	assert.Nil(t, r)
 	assert.NotNil(t, err)
 }
 
-func TestOfflineShortConversion(t *testing.T) {
-	var ts ntpTimeShort
-
-	ts = 0x00000000
-	assert.Equal(t, 0*time.Nanosecond, ts.Duration())
-
-	ts = 0x00000001
-	assert.Equal(t, 15259*time.Nanosecond, ts.Duration()) // well, it's actually 15258.789, but it's good enough
-
-	ts = 0x00008000
-	assert.Equal(t, 500*time.Millisecond, ts.Duration()) // precise
-
-	ts = 0x0000c000
-	assert.Equal(t, 750*time.Millisecond, ts.Duration()) // precise
-
-	ts = 0x0000ff80
-	assert.Equal(t, time.Second-(1000000000/512)*time.Nanosecond, ts.Duration()) // last precise sub-second value
-
-	ts = 0x00010000
-	assert.Equal(t, 1000*time.Millisecond, ts.Duration()) // precise
-
-	ts = 0x00018000
-	assert.Equal(t, 1500*time.Millisecond, ts.Duration()) // precise
-
-	ts = 0xffff0000
-	assert.Equal(t, 65535*time.Second, ts.Duration()) // precise
-
-	ts = 0xffffff80
-	assert.Equal(t, 65536*time.Second-(1000000000/512)*time.Nanosecond, ts.Duration()) // last precise value
+func TestOnlineTime(t *testing.T) {
+	tm, err := Time(host)
+	now := time.Now()
+	if isNil(t, host, err) {
+		t.Logf(" System Time: %s\n", now.Format(timeFormat))
+		t.Logf("  ~True Time: %s\n", tm.Format(timeFormat))
+		t.Logf("~ClockOffset: %v\n", tm.Sub(now))
+	}
 }
 
-func TestOfflineLongConversion(t *testing.T) {
-	ts := []ntpTime{0x0, 0xff800000, 0x1ff800000, 0x80000000ff800000, 0xffffffffff800000}
+func TestOnlineTimeFailure(t *testing.T) {
+	// Use a link-local IP address that won't have an NTP server listening
+	// on it. This should return the local system's time.
+	local, err := Time("169.254.122.229")
+	assert.NotNil(t, err)
 
+	// When the NTP time query fails, it should return the system time.
+	// Compare the "now" system time with the returned time. It should be
+	// about the same.
+	now := time.Now()
+	diffMinutes := now.Sub(local).Minutes()
+	assert.True(t, diffMinutes > -1 && diffMinutes < 1)
+}
+
+func TestOnlineTTL(t *testing.T) {
+	if host == "localhost" {
+		t.Skip("TTL test not available with localhost NTP server.")
+		return
+	}
+
+	// TTL of 1 should cause a timeout.
+	hdr, _, err := getTime(host, QueryOptions{TTL: 1, Timeout: 1 * time.Second})
+	assert.Nil(t, hdr)
+	assert.NotNil(t, err)
+}
+
+func TestOfflineConvertLong(t *testing.T) {
+	ts := []ntpTime{0x0, 0xff800000, 0x1ff800000, 0x80000000ff800000, 0xffffffffff800000}
 	for _, v := range ts {
 		assert.Equal(t, v, toNtpTime(v.Time()))
 	}
 }
 
-func TestOfflineOffsetCalculation(t *testing.T) {
-	now := time.Now()
-	t1 := toNtpTime(now)
-	t2 := toNtpTime(now.Add(20 * time.Second))
-	t3 := toNtpTime(now.Add(21 * time.Second))
-	t4 := toNtpTime(now.Add(5 * time.Second))
+func TestOfflineConvertShort(t *testing.T) {
+	cases := []struct {
+		NtpTime  ntpTimeShort
+		Duration time.Duration
+	}{
+		{0x00000000, 0 * time.Nanosecond},
+		{0x00000001, 15259 * time.Nanosecond},
+		{0x00008000, 500 * time.Millisecond},
+		{0x0000c000, 750 * time.Millisecond},
+		{0x0000ff80, time.Second - (1000000000/512)*time.Nanosecond},
+		{0x00010000, 1000 * time.Millisecond},
+		{0x00018000, 1500 * time.Millisecond},
+		{0xffff0000, 65535 * time.Second},
+		{0xffffff80, 65536*time.Second - (1000000000/512)*time.Nanosecond},
+	}
 
-	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
-	// ((119 - 99) + (121 - 104)) / 2
-	// (20 +  17) / 2
-	// 37 / 2 = 18
-	expectedOffset := 18 * time.Second
-	offset := offset(t1, t2, t3, t4)
-	assert.Equal(t, expectedOffset, offset)
+	for _, c := range cases {
+		ts := c.NtpTime
+		assert.Equal(t, c.Duration, ts.Duration())
+	}
 }
 
-func TestOfflineOffsetCalculationNegative(t *testing.T) {
-	now := time.Now()
-	t1 := toNtpTime(now.Add(101 * time.Second))
-	t2 := toNtpTime(now.Add(102 * time.Second))
-	t3 := toNtpTime(now.Add(103 * time.Second))
-	t4 := toNtpTime(now.Add(105 * time.Second))
+func TestOfflineCustomDialer(t *testing.T) {
+	raddr := "remote:123"
+	laddr := "local"
+	dialerCalled := false
+	notDialingErr := errors.New("not dialing")
 
-	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
-	// ((102 - 101) + (103 - 105)) / 2
-	// (1 + -2) / 2 = -1 / 2
-	expectedOffset := -time.Second / 2
-	offset := offset(t1, t2, t3, t4)
-	assert.Equal(t, expectedOffset, offset)
+	customDialer := func(la, ra string) (net.Conn, error) {
+		assert.Equal(t, laddr, la)
+		assert.Equal(t, raddr, ra)
+		// Only expect to be called once:
+		assert.False(t, dialerCalled)
+
+		dialerCalled = true
+		return nil, notDialingErr
+	}
+
+	opt := QueryOptions{
+		LocalAddress: laddr,
+		Dialer:       customDialer,
+	}
+	r, err := QueryWithOptions(raddr, opt)
+	assert.Nil(t, r)
+	assert.Equal(t, notDialingErr, err)
+	assert.True(t, dialerCalled)
+}
+
+func TestOfflineCustomDialerDeprecated(t *testing.T) {
+	raddr := "remote"
+	laddr := "local"
+	dialerCalled := false
+	notDialingErr := errors.New("not dialing")
+
+	customDial := func(la string, lp int, ra string, rp int) (net.Conn, error) {
+		assert.Equal(t, laddr, la)
+		assert.Equal(t, 0, lp)
+		assert.Equal(t, raddr, ra)
+		assert.Equal(t, 123, rp)
+		// Only expect to be called once:
+		assert.False(t, dialerCalled)
+
+		dialerCalled = true
+		return nil, notDialingErr
+	}
+
+	opt := QueryOptions{
+		LocalAddress: laddr,
+		Dial:         customDial,
+	}
+	r, err := QueryWithOptions(raddr, opt)
+	assert.Nil(t, r)
+	assert.Equal(t, notDialingErr, err)
+	assert.True(t, dialerCalled)
+}
+
+func TestOfflineKissCode(t *testing.T) {
+	codes := []struct {
+		id  uint32
+		str string
+	}{
+		{0x41435354, "ACST"},
+		{0x41555448, "AUTH"},
+		{0x4155544f, "AUTO"},
+		{0x42435354, "BCST"},
+		{0x43525950, "CRYP"},
+		{0x44454e59, "DENY"},
+		{0x44524f50, "DROP"},
+		{0x52535452, "RSTR"},
+		{0x494e4954, "INIT"},
+		{0x4d435354, "MCST"},
+		{0x4e4b4559, "NKEY"},
+		{0x52415445, "RATE"},
+		{0x524d4f54, "RMOT"},
+		{0x53544550, "STEP"},
+		{0x01010101, ""},
+		{0xfefefefe, ""},
+		{0x01544450, ""},
+		{0x41544401, ""},
+	}
+	for _, c := range codes {
+		assert.Equal(t, kissCode(c.id), c.str)
+	}
 }
 
 func TestOfflineMinError(t *testing.T) {
@@ -296,6 +328,37 @@ func TestOfflineMinError(t *testing.T) {
 	}
 }
 
+func TestOfflineOffsetCalculation(t *testing.T) {
+	now := time.Now()
+	t1 := toNtpTime(now)
+	t2 := toNtpTime(now.Add(20 * time.Second))
+	t3 := toNtpTime(now.Add(21 * time.Second))
+	t4 := toNtpTime(now.Add(5 * time.Second))
+
+	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
+	// ((119 - 99) + (121 - 104)) / 2
+	// (20 +  17) / 2
+	// 37 / 2 = 18
+	expectedOffset := 18 * time.Second
+	offset := offset(t1, t2, t3, t4)
+	assert.Equal(t, expectedOffset, offset)
+}
+
+func TestOfflineOffsetCalculationNegative(t *testing.T) {
+	now := time.Now()
+	t1 := toNtpTime(now.Add(101 * time.Second))
+	t2 := toNtpTime(now.Add(102 * time.Second))
+	t3 := toNtpTime(now.Add(103 * time.Second))
+	t4 := toNtpTime(now.Add(105 * time.Second))
+
+	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
+	// ((102 - 101) + (103 - 105)) / 2
+	// (1 + -2) / 2 = -1 / 2
+	expectedOffset := -time.Second / 2
+	offset := offset(t1, t2, t3, t4)
+	assert.Equal(t, expectedOffset, offset)
+}
+
 func TestOfflineTimeConversions(t *testing.T) {
 	nowNtp := toNtpTime(time.Now())
 	now := nowNtp.Time()
@@ -307,95 +370,47 @@ func TestOfflineTimeConversions(t *testing.T) {
 	assert.Equal(t, now, startNow)
 }
 
-func TestOfflineKissCode(t *testing.T) {
-	codes := []struct {
-		id  uint32
-		str string
-	}{
-		{0x41435354, "ACST"},
-		{0x41555448, "AUTH"},
-		{0x4155544f, "AUTO"},
-		{0x42435354, "BCST"},
-		{0x43525950, "CRYP"},
-		{0x44454e59, "DENY"},
-		{0x44524f50, "DROP"},
-		{0x52535452, "RSTR"},
-		{0x494e4954, "INIT"},
-		{0x4d435354, "MCST"},
-		{0x4e4b4559, "NKEY"},
-		{0x52415445, "RATE"},
-		{0x524d4f54, "RMOT"},
-		{0x53544550, "STEP"},
-		{0x01010101, ""},
-		{0xfefefefe, ""},
-		{0x01544450, ""},
-		{0x41544401, ""},
-	}
-	for _, c := range codes {
-		assert.Equal(t, kissCode(c.id), c.str)
-	}
-}
+func TestOfflineValidate(t *testing.T) {
+	var m header
+	var r *Response
+	m.Stratum = 1
+	m.ReferenceID = refID
+	m.ReferenceTime = 1 << 32
+	m.Precision = -1 // 500ms
 
-func TestOfflineCustomDialer(t *testing.T) {
-	raddr := "remote"
-	laddr := "local"
-	dialerCalled := false
-	notDialingErr := errors.New("not dialing")
+	// Zero RTT
+	m.OriginTime = 1 << 32
+	m.ReceiveTime = 1 << 32
+	m.TransmitTime = 1 << 32
+	r = generateResponse(&m, 1<<32, nil)
+	assertValid(t, r)
 
-	customDialer := func(la string, lp int, ra string, rp int) (net.Conn, error) {
-		assert.Equal(t, laddr, la)
-		assert.Equal(t, 0, lp)
-		assert.Equal(t, raddr, ra)
-		assert.Equal(t, 123, rp)
-		// Only expect to be called once:
-		assert.False(t, dialerCalled)
+	// Negative freshness
+	m.ReferenceTime = 2 << 32
+	r = generateResponse(&m, 1<<32, nil)
+	assertInvalid(t, r)
 
-		dialerCalled = true
-		return nil, notDialingErr
-	}
+	// Unfresh clock (48h)
+	m.OriginTime = 2 * 86400 << 32
+	m.ReceiveTime = 2 * 86400 << 32
+	m.TransmitTime = 2 * 86400 << 32
+	r = generateResponse(&m, 2*86400<<32, nil)
+	assertInvalid(t, r)
 
-	opt := QueryOptions{
-		LocalAddress: laddr,
-		Dial:         customDialer,
-	}
-	r, err := QueryWithOptions(raddr, opt)
-	assert.Nil(t, r)
-	assert.Equal(t, notDialingErr, err)
-	assert.True(t, dialerCalled)
-}
+	// Fresh clock (24h)
+	m.ReferenceTime = 1 * 86400 << 32
+	r = generateResponse(&m, 2*86400<<32, nil)
+	assertValid(t, r)
 
-func formatRefID(id uint32, stratum uint8) string {
-	if stratum == 0 {
-		return "<kiss>"
-	}
-
-	b := make([]byte, 4)
-	binary.BigEndian.PutUint32(b, id)
-
-	// Stratum 1 ref IDs typically contain ASCII-encoded string identifiers.
-	if stratum == 1 {
-		const dot = rune(0x22c5)
-		var r []rune
-		for i := range b {
-			if b[i] == 0 {
-				break
-			}
-			if b[i] >= 32 && b[i] <= 126 {
-				r = append(r, rune(b[i]))
-			} else {
-				r = append(r, dot)
-			}
-		}
-		return fmt.Sprintf(".%s.", string(r))
-	}
-
-	// Stratum 2+ ref IDs typically contain IPv4 addresses.
-	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
-}
-
-func stringOrEmpty(s string) string {
-	if s == "" {
-		return "<empty>"
-	}
-	return s
+	// Values indicating a negative RTT
+	m.RootDelay = 16 << 16
+	m.ReferenceTime = 1 << 32
+	m.OriginTime = 20 << 32
+	m.ReceiveTime = 10 << 32
+	m.TransmitTime = 15 << 32
+	r = generateResponse(&m, 22<<32, nil)
+	assert.NotNil(t, r)
+	assertValid(t, r)
+	assert.Equal(t, r.RTT, 0*time.Second)
+	assert.Equal(t, r.RootDistance, 8*time.Second)
 }

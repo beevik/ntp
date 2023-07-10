@@ -17,6 +17,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/net/ipv4"
@@ -59,6 +60,7 @@ const (
 // Internal constants
 const (
 	defaultNtpVersion = 4
+	defaultNtpPort    = 123
 	nanoPerSec        = 1000000000
 	maxStratum        = 16
 	defaultTimeout    = 5 * time.Second
@@ -176,25 +178,47 @@ func (h *header) getLeap() LeapIndicator {
 	return LeapIndicator((h.LiVnMode >> 6) & 0x03)
 }
 
-// dialFn is a function used to override the QueryWithOptions function's
-// default network "dialing" behavior. It creates a connection to a remote
-// network endpoint (raddr + rport) from a local network endpoint (laddr +
-// lport). The local address 'laddr' comes from the 'LocalAddress' specified
-// in QueryOptions. The local port 'lport' is always zero. The remote address
-// 'raddr' comes from the QueryWithOptions host parameter. The remote port
-// 'rport' comes from the 'Port' specified in QueryOptions.
-type dialFn func(laddr string, lport int, raddr string, rport int) (net.Conn, error)
-
 // QueryOptions contains configurable options used by the QueryWithOptions
 // function.
 type QueryOptions struct {
-	Timeout      time.Duration // connection timeout, defaults to 5 seconds
-	Version      int           // NTP protocol version, defaults to 4
-	LocalAddress string        // address to use for the local system
-	Port         int           // remote server port, defaults to 123
-	TTL          int           // IP TTL to use, defaults to system default
-	Auth         AuthOptions   // configures symmetric key authentication
-	Dial         dialFn        // overrides the default UDP dialer
+	// Timeout determines how long the client waits for a response from the
+	// server before failing with a timeout error. Defaults to 5 seconds.
+	Timeout time.Duration
+
+	// Version of the NTP protocol to use. Defaults to 4.
+	Version int
+
+	// LocalAddress contains the local IP address to use when creating a
+	// connection to the remote NTP server. This may be useful when the local
+	// system has more than one IP address. This address should not contain
+	// a port number.
+	LocalAddress string
+
+	// Port indicates the port used to reach the remote NTP server.
+	//
+	// DEPRECATED. Embed the port number in the query address string instead.
+	Port int
+
+	// TTL specifies the maximum number of IP hops before the query datagram
+	// is dropped by the network. Defaults to the local system's default value.
+	TTL int
+
+	// Auth contains the settings used to configure NTP symmetric key
+	// authentication. See RFC5905 for further details.
+	Auth AuthOptions
+
+	// Dialer is a callback used to override the default UDP network dialer.
+	// The localAddress is directly copied from the LocalAddress field
+	// specified in QueryOptions. It may be the empty string or a host address
+	// (without port number). The remoteAddress is the "host:port" string
+	// derived from the first parameter to QueryWithOptions.  The
+	// remoteAddress is guaranteed to include a port number.
+	Dialer func(localAddress, remoteAddress string) (net.Conn, error)
+
+	// Dial is a callback used to override the default UDP network dialer.
+	//
+	// DEPRECATED. Use Dialer instead.
+	Dial func(laddr string, lport int, raddr string, rport int) (net.Conn, error)
 }
 
 // A Response contains time data, some of which is returned by the NTP server
@@ -315,17 +339,19 @@ func (r *Response) Validate() error {
 	return nil
 }
 
-// Query returns a response from the remote NTP server at address 'host'. The
-// response contains the time at which the server responded to the query as
-// well as other useful information about the time and the remote server.
-func Query(host string) (*Response, error) {
-	return QueryWithOptions(host, QueryOptions{})
+// Query requests time data from a remote NTP server. The server address is of
+// the form "host", "host:port", "host%zone:port", "[host]:port" or
+// "[host%zone]:port". If no port is included, NTP default port 123 is used.
+// The response contains the time at which the server responded to the query
+// as well as other useful information about the time and the remote server.
+func Query(address string) (*Response, error) {
+	return QueryWithOptions(address, QueryOptions{})
 }
 
 // QueryWithOptions performs the same function as Query but allows for the
 // customization of several query options.
-func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
-	h, now, err := getTime(host, opt)
+func QueryWithOptions(address string, opt QueryOptions) (*Response, error) {
+	h, now, err := getTime(address, opt)
 	if err != nil && err != ErrAuthFailed {
 		return nil, err
 	}
@@ -334,10 +360,12 @@ func QueryWithOptions(host string, opt QueryOptions) (*Response, error) {
 }
 
 // Time returns the current local time using information returned from the
-// remote NTP server at address 'host'. It uses version 4 of the NTP protocol.
-// On error, it returns the local system time.
-func Time(host string) (time.Time, error) {
-	r, err := Query(host)
+// remote NTP server. The server address is of the form "host", "host:port",
+// "host%zone:port", "[host]:port" or "[host%zone]:port". If no port is
+// included, NTP default port 123 is used. On error, Time returns the local
+// system time.
+func Time(address string) (time.Time, error) {
+	r, err := Query(address)
 	if err != nil {
 		return time.Now(), err
 	}
@@ -353,7 +381,7 @@ func Time(host string) (time.Time, error) {
 
 // getTime performs the NTP server query and returns the response header
 // along with the local system time it was received.
-func getTime(host string, opt QueryOptions) (*header, ntpTime, error) {
+func getTime(address string, opt QueryOptions) (*header, ntpTime, error) {
 	if opt.Timeout == 0 {
 		opt.Timeout = defaultTimeout
 	}
@@ -364,14 +392,32 @@ func getTime(host string, opt QueryOptions) (*header, ntpTime, error) {
 		return nil, 0, ErrInvalidProtocolVersion
 	}
 	if opt.Port == 0 {
-		opt.Port = 123
+		opt.Port = defaultNtpPort
 	}
-	if opt.Dial == nil {
-		opt.Dial = defaultDial
+	if opt.Dial != nil {
+		// wrapper for the deprecated Dial callback.
+		opt.Dialer = func(la, ra string) (net.Conn, error) {
+			return dialWrapper(la, ra, opt.Dial)
+		}
+	}
+	if opt.Dialer == nil {
+		opt.Dialer = defaultDialer
+	}
+
+	// Compose a remote "host:port" address string if the address string
+	// doesn't already contain a port.
+	remoteAddress := address
+	_, _, err := net.SplitHostPort(address)
+	if err != nil {
+		if strings.Contains(err.Error(), "missing port") {
+			remoteAddress = net.JoinHostPort(address, strconv.Itoa(opt.Port))
+		} else {
+			return nil, 0, err
+		}
 	}
 
 	// Connect to the remote server.
-	con, err := opt.Dial(opt.LocalAddress, 0, host, opt.Port)
+	con, err := opt.Dialer(opt.LocalAddress, remoteAddress)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -484,24 +530,39 @@ func getTime(host string, opt QueryOptions) (*header, ntpTime, error) {
 	return recvHdr, toNtpTime(recvTime), authErr
 }
 
-// defaultDial provides a UDP dialer based on Go's built-in net stack.
-func defaultDial(localAddr string, localPort int, remoteAddr string, remotePort int) (net.Conn, error) {
-	rhostport := net.JoinHostPort(remoteAddr, strconv.Itoa(remotePort))
-	raddr, err := net.ResolveUDPAddr("udp", rhostport)
-	if err != nil {
-		return nil, err
-	}
-
+// defaultDialer provides a UDP dialer based on Go's built-in net stack.
+func defaultDialer(localAddress, remoteAddress string) (net.Conn, error) {
 	var laddr *net.UDPAddr
-	if localAddr != "" {
-		lhostport := net.JoinHostPort(localAddr, strconv.Itoa(localPort))
-		laddr, err = net.ResolveUDPAddr("udp", lhostport)
+	if localAddress != "" {
+		var err error
+		laddr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(localAddress, "0"))
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	raddr, err := net.ResolveUDPAddr("udp", remoteAddress)
+	if err != nil {
+		return nil, err
+	}
+
 	return net.DialUDP("udp", laddr, raddr)
+}
+
+// dialWrapper is used to wrap the deprecated Dial callback in QueryOptions.
+func dialWrapper(la, ra string,
+	dial func(la string, lp int, ra string, rp int) (net.Conn, error)) (net.Conn, error) {
+	rhost, rport, err := net.SplitHostPort(ra)
+	if err != nil {
+		return nil, err
+	}
+
+	rportValue, err := strconv.Atoi(rport)
+	if err != nil {
+		return nil, err
+	}
+
+	return dial(la, 0, rhost, rportValue)
 }
 
 // generateResponse processes NTP header fields along with the its receive
