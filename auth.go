@@ -72,7 +72,7 @@ func calcDigest_SHA512(payload, key []byte) []byte {
 }
 
 func calcCMAC_AES(payload, key []byte) []byte {
-	// calculate the CMAC according to the algorithm defined in RFC4493. See
+	// calculate the CMAC according to the algorithm defined in RFC 4493. See
 	// https://tools.ietf.org/html/rfc4493 for details.
 	c, err := aes.NewCipher(key)
 	if err != nil {

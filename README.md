@@ -4,7 +4,7 @@ ntp
 ===
 
 The ntp package is an implementation of a Simple NTP (SNTP) client based on
-[RFC5905](https://tools.ietf.org/html/rfc5905). It allows you to connect to
+[RFC 5905](https://tools.ietf.org/html/rfc5905). It allows you to connect to
 a remote NTP server and request information about the current time.
 
 
@@ -17,9 +17,9 @@ time, err := ntp.Time("0.beevik-ntp.pool.ntp.org")
 ```
 
 
-## Querying time metadata
+## Querying time synchronization data
 
-To obtain the current time as well as some additional metadata about the time,
+To obtain the current time as well as some additional synchronization data,
 use the [`Query`](https://godoc.org/github.com/beevik/ntp#Query) function:
 ```go
 response, err := ntp.Query("0.beevik-ntp.pool.ntp.org")
@@ -28,11 +28,11 @@ time := time.Now().Add(response.ClockOffset)
 
 The [`Response`](https://godoc.org/github.com/beevik/ntp#Response) structure
 returned by `Query` includes the following information:
-* `Time`: The time the server transmitted its response, according to its own
-  clock.
 * `ClockOffset`: The estimated offset of the local system clock relative to
   the server's clock. For a more accurate time reading, you may add this
   offset to any subsequent system clock reading.
+* `Time`: The time the server transmitted its response, according to its own
+  clock.
 * `RTT`: An estimate of the round-trip-time delay between the client and the
   server.
 * `Precision`: The precision of the server's clock reading.
@@ -57,8 +57,8 @@ returned by `Query` includes the following information:
   server.
 
 The `Response` structure's [`Validate`](https://godoc.org/github.com/beevik/ntp#Response.Validate)
-method performs additional sanity checks to determine whether the response is
-suitable for time synchronization purposes.
+function performs additional sanity checks to determine whether the response
+is suitable for time synchronization purposes.
 ```go
 err := response.Validate()
 if err == nil {
@@ -80,15 +80,15 @@ include:
 * `Timeout`: How long to wait before giving up on a response from the NTP
   server.
 * `Version`: Which version of the NTP protocol to use (2, 3 or 4).
-* `LocalAddress`: The local network address to use when connecting to the
-  server.
-* `Port`: The remote NTP server port to contact.
 * `TTL`: The maximum number of IP hops before the request packet is discarded.
 * `Auth`: The symmetric authentication key and algorithm used by the server to
   authenticate the query. The same information is used by the client to
   authenticate the server's response.
+* `Extensions`: Extensions may be added to modify NTP queries before they are
+	transmitted and to process NTP responses after they arrive.
 * `Dial`: A custom network connection "dialer" function used to override the
   default UDP dialer function.
+
 
 ## Using the NTP pool
 
@@ -98,3 +98,12 @@ over the world. To prevent it from becoming overloaded, please avoid querying
 the standard `pool.ntp.org` zone names in your applications. Instead, consider
 requesting your own [vendor zone](http://www.pool.ntp.org/en/vendors.html) or
 [joining the pool](http://www.pool.ntp.org/join.html).
+
+
+## Network Time Security (NTS)
+
+Network Time Security (NTS) is a recent enhancement of NTP, designed to add
+better authentication and message integrity to the protocol. It is defined by
+[RFC 8915](https://tools.ietf.org/html/rfc8915). If you wish to use NTS, see
+the [nts package](https://github.com/beevik/nts). (The nts package is
+implemented as an extension to this package.)

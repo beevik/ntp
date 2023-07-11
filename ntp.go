@@ -1,10 +1,10 @@
-// Copyright 2015-2023 Brett Vickers.
+// Copyright © 2015-2023 Brett Vickers.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 // Package ntp provides an implementation of a Simple NTP (SNTP) client
 // capable of querying the current time from a remote NTP server.  See
-// RFC5905 (https://tools.ietf.org/html/rfc5905) for more details.
+// RFC 5905 (https://tools.ietf.org/html/rfc5905) for more details.
 //
 // This approach grew out of a go-nuts post by Michael Hofmann:
 // https://groups.google.com/forum/?fromgroups#!topic/golang-nuts/FlcdMU5fkLQ
@@ -219,7 +219,7 @@ type QueryOptions struct {
 	TTL int
 
 	// Auth contains the settings used to configure NTP symmetric key
-	// authentication. See RFC5905 for further details.
+	// authentication. See RFC 5905 for further details.
 	Auth AuthOptions
 
 	// Extensions may be added to modify NTP queries before they are
@@ -244,7 +244,8 @@ type QueryOptions struct {
 // and some of which is calculated by this client.
 type Response struct {
 	// Time is the transmit time reported by the server just before it
-	// responded to the client's NTP query.
+	// responded to the client's NTP query. You should not use this value
+	// for time synchronization purposes. Use the ClockOffset instead.
 	Time time.Time
 
 	// ClockOffset is the estimated offset of the local system clock relative
@@ -266,8 +267,13 @@ type Response struct {
 	// issues too many requests to the server in a short period of time.
 	Stratum uint8
 
-	// ReferenceID is a 32-bit identifier identifying the server or
-	// reference clock.
+	// ReferenceID is a 32-bit identifier identifying the server or reference
+	// clock. For stratum 1 servers, this is typically a meaningful
+	// zero-padded ASCII-encoded string assigned to the clock. For stratum 2+
+	// servers, this is a reference identifier for the server and is either
+	// the server's IPv4 address or a hash of its IPv6 address. For
+	// kiss-of-death responses (stratum=0), this field contains the
+	// ASCII-encoded "kiss code".
 	ReferenceID uint32
 
 	// ReferenceTime is the time when the server's system clock was last
@@ -299,7 +305,7 @@ type Response struct {
 	MinError time.Duration
 
 	// KissCode is a 4-character string describing the reason for a
-	// "kiss of death" response (stratum = 0). For a list of standard kiss
+	// "kiss of death" response (stratum=0). For a list of standard kiss
 	// codes, see https://tools.ietf.org/html/rfc5905#section-7.4.
 	KissCode string
 
