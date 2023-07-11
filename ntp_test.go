@@ -55,20 +55,20 @@ func assertInvalid(t *testing.T, r *Response) {
 
 func logResponse(t *testing.T, r *Response) {
 	now := time.Now()
-	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset.String())
+	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
 	t.Logf("[%s]  SystemTime: %s", host, now.Format(timeFormat))
 	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
 	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]       RefID: %s (0x%08x)", host, formatRefID(r.ReferenceID, r.Stratum), r.ReferenceID)
 	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
-	t.Logf("[%s]         RTT: %s", host, r.RTT.String())
-	t.Logf("[%s]        Poll: %s", host, r.Poll.String())
-	t.Logf("[%s]   Precision: %s", host, r.Precision.String())
-	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay.String())
-	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion.String())
-	t.Logf("[%s]    RootDist: %s", host, r.RootDistance.String())
-	t.Logf("[%s]    MinError: %s", host, r.MinError.String())
+	t.Logf("[%s]         RTT: %s", host, r.RTT)
+	t.Logf("[%s]        Poll: %s", host, r.Poll)
+	t.Logf("[%s]   Precision: %s", host, r.Precision)
+	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay)
+	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
+	t.Logf("[%s]    RootDist: %s", host, r.RootDistance)
+	t.Logf("[%s]    MinError: %s", host, r.MinError)
 	t.Logf("[%s]        Leap: %d", host, r.Leap)
 	t.Logf("[%s]    KissCode: %s", host, stringOrEmpty(r.KissCode))
 }
@@ -111,7 +111,7 @@ func stringOrEmpty(s string) string {
 
 func TestOnlineBadServerPort(t *testing.T) {
 	// Not NTP port.
-	tm, _, err := getTime(host+":9", QueryOptions{Timeout: 1 * time.Second})
+	tm, _, err := getTime(host+":9", &QueryOptions{Timeout: 1 * time.Second})
 	assert.Nil(t, tm)
 	assert.NotNil(t, err)
 }
@@ -168,7 +168,7 @@ func TestOnlineTTL(t *testing.T) {
 	}
 
 	// TTL of 1 should cause a timeout.
-	hdr, _, err := getTime(host, QueryOptions{TTL: 1, Timeout: 1 * time.Second})
+	hdr, _, err := getTime(host, &QueryOptions{TTL: 1, Timeout: 1 * time.Second})
 	assert.Nil(t, hdr)
 	assert.NotNil(t, err)
 }
@@ -272,6 +272,7 @@ func TestOfflineKissCode(t *testing.T) {
 		{0x494e4954, "INIT"},
 		{0x4d435354, "MCST"},
 		{0x4e4b4559, "NKEY"},
+		{0x4e54534e, "NTSN"},
 		{0x52415445, "RATE"},
 		{0x524d4f54, "RMOT"},
 		{0x53544550, "STEP"},

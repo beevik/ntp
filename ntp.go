@@ -146,8 +146,8 @@ type header struct {
 	Precision      int8
 	RootDelay      ntpTimeShort
 	RootDispersion ntpTimeShort
-	ReferenceID    uint32
-	ReferenceTime  ntpTime ``
+	ReferenceID    uint32 // KoD code if Stratum == 0
+	ReferenceTime  ntpTime
 	OriginTime     ntpTime
 	ReceiveTime    ntpTime
 	TransmitTime   ntpTime
@@ -178,6 +178,21 @@ func (h *header) getLeap() LeapIndicator {
 	return LeapIndicator((h.LiVnMode >> 6) & 0x03)
 }
 
+// An Extension adds custom behaviors capable of modifying NTP packets before
+// being sent to the server and processing packets after being received by the
+// server.
+type Extension interface {
+	// ProcessQuery is called when the client is about to send a query to the
+	// NTP server. The buffer contains the NTP header. It may also contain
+	// extension fields added by extensions processed prior to this one.
+	ProcessQuery(buf *bytes.Buffer) error
+
+	// ProcessResponse is called after the client has received the server's
+	// NTP response. The buffer contains the entire message returned by the
+	// server.
+	ProcessResponse(buf []byte) error
+}
+
 // QueryOptions contains configurable options used by the QueryWithOptions
 // function.
 type QueryOptions struct {
@@ -206,6 +221,10 @@ type QueryOptions struct {
 	// Auth contains the settings used to configure NTP symmetric key
 	// authentication. See RFC5905 for further details.
 	Auth AuthOptions
+
+	// Extensions may be added to modify NTP queries before they are
+	// transmitted and to process NTP responses after they arrive.
+	Extensions []Extension
 
 	// Dialer is a callback used to override the default UDP network dialer.
 	// The localAddress is directly copied from the LocalAddress field
@@ -342,16 +361,17 @@ func (r *Response) Validate() error {
 // Query requests time data from a remote NTP server. The server address is of
 // the form "host", "host:port", "host%zone:port", "[host]:port" or
 // "[host%zone]:port". If no port is included, NTP default port 123 is used.
-// The response contains the time at which the server responded to the query
-// as well as other useful information about the time and the remote server.
+// The response contains information from which an accurate local time can be
+// determined.
 func Query(address string) (*Response, error) {
 	return QueryWithOptions(address, QueryOptions{})
 }
 
 // QueryWithOptions performs the same function as Query but allows for the
-// customization of several query options.
+// customization of certain query behaviors. See the comment for Query for
+// more information.
 func QueryWithOptions(address string, opt QueryOptions) (*Response, error) {
-	h, now, err := getTime(address, opt)
+	h, now, err := getTime(address, &opt)
 	if err != nil && err != ErrAuthFailed {
 		return nil, err
 	}
@@ -375,13 +395,13 @@ func Time(address string) (time.Time, error) {
 		return time.Now(), err
 	}
 
-	// Use the clock offset to calculate the time.
+	// Use the response's clock offset to calculate an accurate time.
 	return time.Now().Add(r.ClockOffset), nil
 }
 
 // getTime performs the NTP server query and returns the response header
 // along with the local system time it was received.
-func getTime(address string, opt QueryOptions) (*header, ntpTime, error) {
+func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	if opt.Timeout == 0 {
 		opt.Timeout = defaultTimeout
 	}
@@ -445,8 +465,8 @@ func getTime(address string, opt QueryOptions) (*header, ntpTime, error) {
 	// Set a timeout on the connection.
 	con.SetDeadline(time.Now().Add(opt.Timeout))
 
-	// Allocate a buffer to hold the response datagram.
-	recvBuf := make([]byte, 1024)
+	// Allocate a buffer big enough to hold an entire response datagram.
+	recvBuf := make([]byte, 8192)
 	recvHdr := new(header)
 
 	// Allocate the query message header.
@@ -466,9 +486,19 @@ func getTime(address string, opt QueryOptions) (*header, ntpTime, error) {
 	}
 	xmitHdr.TransmitTime = ntpTime(binary.BigEndian.Uint64(bits))
 
-	// Write the query to a transmit buffer.
+	// Write the query header to a transmit buffer.
 	var xmitBuf bytes.Buffer
 	binary.Write(&xmitBuf, binary.BigEndian, xmitHdr)
+
+	// Allow extensions to process the query and add to the transmit buffer.
+	for _, e := range opt.Extensions {
+		err = e.ProcessQuery(&xmitBuf)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// Append an authentication MAC if requested.
 	if opt.Auth.Type != AuthNone {
 		appendMAC(&xmitBuf, opt.Auth, decodedAuthKey)
 	}
@@ -503,7 +533,15 @@ func getTime(address string, opt QueryOptions) (*header, ntpTime, error) {
 		return nil, 0, err
 	}
 
-	// If authentication is being used, the response must contain a valid MAC.
+	// Allow extensions to process the response.
+	for i := len(opt.Extensions) - 1; i >= 0; i-- {
+		err = opt.Extensions[i].ProcessResponse(recvBuf)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// Perform authentication of the server response.
 	var authErr error
 	if opt.Auth.Type != AuthNone {
 		authErr = verifyMAC(recvBuf, opt.Auth, decodedAuthKey)
