@@ -310,6 +310,13 @@ type Response struct {
 	authErr error
 }
 
+// IsKissOfDeath returns true if the response is a "kiss of death" from the
+// remote server. If this function returns true, you may examine the
+// response's KissCode value to determine the reason for the kiss of death.
+func (r *Response) IsKissOfDeath() bool {
+	return r.Stratum == 0
+}
+
 // Validate checks if the response is valid for the purposes of time
 // synchronization.
 func (r *Response) Validate() error {
