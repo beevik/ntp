@@ -1,3 +1,26 @@
+Release v1.2.0
+==============
+
+**Changes**
+
+* Added support for NTP extensions by exposing an extension interface.
+  Extensions are able to (1) modify NTP messages before being sent to
+  the server, and (2) process NTP messages after they arrive from the
+  server. This feature has been added in preparation for NTS support.
+* Added support for RFC 8905 symmetric key authentication.
+* Allowed server address to be specified as a "host:port" pair.
+* Brought package into further compliance with IETF draft on client data
+  minimization.
+* Declared error variables as part of the public API.
+* Added a Dialer field to QueryOptions. This replaces the deprecated Dial
+  field.
+* Added an IsKissOfDeath function to the Response type.
+
+**Deprecated**
+
+* Deprecated the Port field in QueryOptions.
+* Deprecated the Dial field in QueryOptions.
+
 Release v1.1.1
 ==============
 
