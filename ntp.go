@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -267,13 +268,13 @@ type Response struct {
 	// issues too many requests to the server in a short period of time.
 	Stratum uint8
 
-	// ReferenceID is a 32-bit identifier identifying the server or reference
+	// ReferenceID is a 32-bit integer identifying the server or reference
 	// clock. For stratum 1 servers, this is typically a meaningful
 	// zero-padded ASCII-encoded string assigned to the clock. For stratum 2+
 	// servers, this is a reference identifier for the server and is either
 	// the server's IPv4 address or a hash of its IPv6 address. For
-	// kiss-of-death responses (stratum=0), this field contains the
-	// ASCII-encoded "kiss code".
+	// kiss-of-death responses (stratum 0), this is the ASCII-encoded "kiss
+	// code".
 	ReferenceID uint32
 
 	// ReferenceTime is the time when the server's system clock was last
@@ -321,6 +322,40 @@ type Response struct {
 // response's KissCode value to determine the reason for the kiss of death.
 func (r *Response) IsKissOfDeath() bool {
 	return r.Stratum == 0
+}
+
+// ReferenceString returns the response's ReferenceID value formatted as a
+// string. If the response's stratum is zero, then the "kiss o' death" string
+// is returned. If stratum is one, then the server is a reference clock and
+// the reference clock's name is returned. If stratum is two or greater, then
+// the ID is either an IPv4 address or an MD5 hash of the IPv6 address; in
+// either case the reference string is reported as 4 dot-separated
+// decimal-based integers.
+func (r *Response) ReferenceString() string {
+	if r.Stratum == 0 {
+		return kissCode(r.ReferenceID)
+	}
+
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], r.ReferenceID)
+
+	if r.Stratum == 1 {
+		const dot = rune(0x22c5)
+		var r []rune
+		for i := range b {
+			if b[i] == 0 {
+				break
+			}
+			if b[i] >= 32 && b[i] <= 126 {
+				r = append(r, rune(b[i]))
+			} else {
+				r = append(r, dot)
+			}
+		}
+		return fmt.Sprintf(".%s.", string(r))
+	}
+
+	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
 }
 
 // Validate checks if the response is valid for the purposes of time
@@ -725,7 +760,7 @@ func toInterval(t int8) time.Duration {
 func kissCode(id uint32) string {
 	isPrintable := func(ch byte) bool { return ch >= 32 && ch <= 126 }
 
-	b := []byte{
+	b := [4]byte{
 		byte(id >> 24),
 		byte(id >> 16),
 		byte(id >> 8),
@@ -736,5 +771,5 @@ func kissCode(id uint32) string {
 			return ""
 		}
 	}
-	return string(b)
+	return string(b[:])
 }

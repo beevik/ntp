@@ -5,9 +5,7 @@
 package ntp
 
 import (
-	"encoding/binary"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -60,7 +58,7 @@ func logResponse(t *testing.T, r *Response) {
 	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
 	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
-	t.Logf("[%s]       RefID: %s (0x%08x)", host, formatRefID(r.ReferenceID, r.Stratum), r.ReferenceID)
+	t.Logf("[%s]       RefID: %s (0x%08x)", host, r.ReferenceString(), r.ReferenceID)
 	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
 	t.Logf("[%s]         RTT: %s", host, r.RTT)
 	t.Logf("[%s]        Poll: %s", host, r.Poll)
@@ -71,35 +69,6 @@ func logResponse(t *testing.T, r *Response) {
 	t.Logf("[%s]    MinError: %s", host, r.MinError)
 	t.Logf("[%s]        Leap: %d", host, r.Leap)
 	t.Logf("[%s]    KissCode: %s", host, stringOrEmpty(r.KissCode))
-}
-
-func formatRefID(id uint32, stratum uint8) string {
-	if stratum == 0 {
-		return "<kiss>"
-	}
-
-	b := make([]byte, 4)
-	binary.BigEndian.PutUint32(b, id)
-
-	// Stratum 1 ref IDs typically contain ASCII-encoded string identifiers.
-	if stratum == 1 {
-		const dot = rune(0x22c5)
-		var r []rune
-		for i := range b {
-			if b[i] == 0 {
-				break
-			}
-			if b[i] >= 32 && b[i] <= 126 {
-				r = append(r, rune(b[i]))
-			} else {
-				r = append(r, dot)
-			}
-		}
-		return fmt.Sprintf(".%s.", string(r))
-	}
-
-	// Stratum 2+ ref IDs typically contain IPv4 addresses.
-	return fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
 }
 
 func stringOrEmpty(s string) string {
@@ -358,6 +327,49 @@ func TestOfflineOffsetCalculationNegative(t *testing.T) {
 	expectedOffset := -time.Second / 2
 	offset := offset(t1, t2, t3, t4)
 	assert.Equal(t, expectedOffset, offset)
+}
+
+func TestOfflineReferenceString(t *testing.T) {
+	cases := []struct {
+		Stratum byte
+		RefID   uint32
+		Str     string
+	}{
+		{0, 0x41435354, "ACST"},
+		{0, 0x41555448, "AUTH"},
+		{0, 0x4155544f, "AUTO"},
+		{0, 0x42435354, "BCST"},
+		{0, 0x43525950, "CRYP"},
+		{0, 0x44454e59, "DENY"},
+		{0, 0x44524f50, "DROP"},
+		{0, 0x52535452, "RSTR"},
+		{0, 0x494e4954, "INIT"},
+		{0, 0x4d435354, "MCST"},
+		{0, 0x4e4b4559, "NKEY"},
+		{0, 0x4e54534e, "NTSN"},
+		{0, 0x52415445, "RATE"},
+		{0, 0x524d4f54, "RMOT"},
+		{0, 0x53544550, "STEP"},
+		{0, 0x01010101, ""},
+		{0, 0xfefefefe, ""},
+		{0, 0x01544450, ""},
+		{0, 0x41544401, ""},
+		{1, 0x47505300, ".GPS."},
+		{1, 0x474f4553, ".GOES."},
+		{2, 0x0a0a1401, "10.10.20.1"},
+		{3, 0xc0a80001, "192.168.0.1"},
+		{4, 0xc0a80001, "192.168.0.1"},
+		{5, 0xc0a80001, "192.168.0.1"},
+		{6, 0xc0a80001, "192.168.0.1"},
+		{7, 0xc0a80001, "192.168.0.1"},
+		{8, 0xc0a80001, "192.168.0.1"},
+		{9, 0xc0a80001, "192.168.0.1"},
+		{10, 0xc0a80001, "192.168.0.1"},
+	}
+	for _, c := range cases {
+		r := Response{Stratum: c.Stratum, ReferenceID: c.RefID}
+		assert.Equal(t, c.Str, r.ReferenceString())
+	}
 }
 
 func TestOfflineTimeConversions(t *testing.T) {
