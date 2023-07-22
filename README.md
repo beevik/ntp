@@ -86,7 +86,7 @@ include:
   authenticate the server's response.
 * `Extensions`: Extensions may be added to modify NTP queries before they are
 	transmitted and to process NTP responses after they arrive.
-* `Dial`: A custom network connection "dialer" function used to override the
+* `Dialer`: A custom network connection "dialer" function used to override the
   default UDP dialer function.
 
 
