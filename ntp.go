@@ -209,11 +209,6 @@ type QueryOptions struct {
 	// a port number.
 	LocalAddress string
 
-	// Port indicates the port used to reach the remote NTP server.
-	//
-	// DEPRECATED. Embed the port number in the query address string instead.
-	Port int
-
 	// TTL specifies the maximum number of IP hops before the query datagram
 	// is dropped by the network. Defaults to the local system's default value.
 	TTL int
@@ -238,6 +233,11 @@ type QueryOptions struct {
 	//
 	// DEPRECATED. Use Dialer instead.
 	Dial func(laddr string, lport int, raddr string, rport int) (net.Conn, error)
+
+	// Port indicates the port used to reach the remote NTP server.
+	//
+	// DEPRECATED. Embed the port number in the query address string instead.
+	Port int
 }
 
 // A Response contains time data, some of which is returned by the NTP server

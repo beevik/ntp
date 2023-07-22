@@ -288,7 +288,7 @@ func TestOfflineKissCode(t *testing.T) {
 
 func TestOfflineMinError(t *testing.T) {
 	start := time.Now()
-	m := &header{
+	h := &header{
 		Stratum:       1,
 		ReferenceID:   refID,
 		ReferenceTime: toNtpTime(start),
@@ -296,7 +296,7 @@ func TestOfflineMinError(t *testing.T) {
 		ReceiveTime:   toNtpTime(start.Add(2 * time.Second)),
 		TransmitTime:  toNtpTime(start.Add(3 * time.Second)),
 	}
-	r := generateResponse(m, toNtpTime(start.Add(4*time.Second)), nil)
+	r := generateResponse(h, toNtpTime(start.Add(4*time.Second)), nil)
 	assertValid(t, r)
 	assert.Equal(t, r.MinError, time.Duration(0))
 
@@ -304,10 +304,10 @@ func TestOfflineMinError(t *testing.T) {
 		for rec := 1 * time.Second; rec <= 10*time.Second; rec += time.Second {
 			for xmt := rec; xmt <= 10*time.Second; xmt += time.Second {
 				for dst := org; dst <= 10*time.Second; dst += time.Second {
-					m.OriginTime = toNtpTime(start.Add(org))
-					m.ReceiveTime = toNtpTime(start.Add(rec))
-					m.TransmitTime = toNtpTime(start.Add(xmt))
-					r = generateResponse(m, toNtpTime(start.Add(dst)), nil)
+					h.OriginTime = toNtpTime(start.Add(org))
+					h.ReceiveTime = toNtpTime(start.Add(rec))
+					h.TransmitTime = toNtpTime(start.Add(xmt))
+					r = generateResponse(h, toNtpTime(start.Add(dst)), nil)
 					assertValid(t, r)
 					var error0, error1 time.Duration
 					if org >= rec {
@@ -372,44 +372,44 @@ func TestOfflineTimeConversions(t *testing.T) {
 }
 
 func TestOfflineValidate(t *testing.T) {
-	var m header
+	var h header
 	var r *Response
-	m.Stratum = 1
-	m.ReferenceID = refID
-	m.ReferenceTime = 1 << 32
-	m.Precision = -1 // 500ms
+	h.Stratum = 1
+	h.ReferenceID = refID
+	h.ReferenceTime = 1 << 32
+	h.Precision = -1 // 500ms
 
 	// Zero RTT
-	m.OriginTime = 1 << 32
-	m.ReceiveTime = 1 << 32
-	m.TransmitTime = 1 << 32
-	r = generateResponse(&m, 1<<32, nil)
+	h.OriginTime = 1 << 32
+	h.ReceiveTime = 1 << 32
+	h.TransmitTime = 1 << 32
+	r = generateResponse(&h, 1<<32, nil)
 	assertValid(t, r)
 
 	// Negative freshness
-	m.ReferenceTime = 2 << 32
-	r = generateResponse(&m, 1<<32, nil)
+	h.ReferenceTime = 2 << 32
+	r = generateResponse(&h, 1<<32, nil)
 	assertInvalid(t, r)
 
 	// Unfresh clock (48h)
-	m.OriginTime = 2 * 86400 << 32
-	m.ReceiveTime = 2 * 86400 << 32
-	m.TransmitTime = 2 * 86400 << 32
-	r = generateResponse(&m, 2*86400<<32, nil)
+	h.OriginTime = 2 * 86400 << 32
+	h.ReceiveTime = 2 * 86400 << 32
+	h.TransmitTime = 2 * 86400 << 32
+	r = generateResponse(&h, 2*86400<<32, nil)
 	assertInvalid(t, r)
 
 	// Fresh clock (24h)
-	m.ReferenceTime = 1 * 86400 << 32
-	r = generateResponse(&m, 2*86400<<32, nil)
+	h.ReferenceTime = 1 * 86400 << 32
+	r = generateResponse(&h, 2*86400<<32, nil)
 	assertValid(t, r)
 
 	// Values indicating a negative RTT
-	m.RootDelay = 16 << 16
-	m.ReferenceTime = 1 << 32
-	m.OriginTime = 20 << 32
-	m.ReceiveTime = 10 << 32
-	m.TransmitTime = 15 << 32
-	r = generateResponse(&m, 22<<32, nil)
+	h.RootDelay = 16 << 16
+	h.ReferenceTime = 1 << 32
+	h.OriginTime = 20 << 32
+	h.ReceiveTime = 10 << 32
+	h.TransmitTime = 15 << 32
+	r = generateResponse(&h, 22<<32, nil)
 	assert.NotNil(t, r)
 	assertValid(t, r)
 	assert.Equal(t, r.RTT, 0*time.Second)
