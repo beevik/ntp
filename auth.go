@@ -1,3 +1,7 @@
+// Copyright © 2015-2023 Brett Vickers.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package ntp
 
 import (
@@ -21,20 +25,29 @@ import (
 type AuthType int
 
 const (
-	AuthNone AuthType = iota // no authentication used
-	AuthMD5
-	AuthSHA1
-	AuthSHA256
-	AuthSHA512
-	AuthAES128
+	AuthNone   AuthType = iota // no authentication
+	AuthMD5                    // MD5 digest
+	AuthSHA1                   // SHA-1 digest
+	AuthSHA256                 // SHA-2 digest (256 bits)
+	AuthSHA512                 // SHA-2 digest (512 bits)
+	AuthAES128                 // AES-128-CMAC
 )
 
 // AuthOptions contains fields used to configure symmetric key authentication
 // for an NTP query.
 type AuthOptions struct {
-	Type  AuthType // cryptographic algorithm used to compute the digest
-	Key   string   // key (hex-encoded if >20 characters, ASCII otherwise)
-	KeyID uint16   // key identifier
+	// Type determines the cryptographic hash algorithm used to compute the
+	// authentication digest or CMAC.
+	Type AuthType
+
+	// The cryptographic key used by the client to perform the authentication.
+	// If the key string is longer than 20 characters, then it is assumed to
+	// be hex-encoded. Otherwise it is assumed to be ASCII-encoded.
+	Key string
+
+	// The identifier used by the NTP server to identify which key to use
+	// for authentication purposes.
+	KeyID uint16
 }
 
 var algorithms = []struct {
@@ -115,41 +128,29 @@ func pad(block []byte) []byte {
 
 func double(dst, src []byte, xor int) {
 	_ = src[15] // compiler hint: bounds check
-	s0 := binary.BigEndian.Uint32(src[0:4])
-	s1 := binary.BigEndian.Uint32(src[4:8])
-	s2 := binary.BigEndian.Uint32(src[8:12])
-	s3 := binary.BigEndian.Uint32(src[12:16])
+	s0 := binary.BigEndian.Uint64(src[0:8])
+	s1 := binary.BigEndian.Uint64(src[8:16])
 
-	carry := int(s0 >> 31)
-	d0 := (s0 << 1) | (s1 >> 31)
-	d1 := (s1 << 1) | (s2 >> 31)
-	d2 := (s2 << 1) | (s3 >> 31)
-	d3 := (s3 << 1) ^ uint32(subtle.ConstantTimeSelect(carry, xor, 0))
+	carry := int(s0 >> 63)
+	d0 := (s0 << 1) | (s1 >> 63)
+	d1 := (s1 << 1) ^ uint64(subtle.ConstantTimeSelect(carry, xor, 0))
 
 	_ = dst[15] // compiler hint: bounds check
-	binary.BigEndian.PutUint32(dst[0:4], d0)
-	binary.BigEndian.PutUint32(dst[4:8], d1)
-	binary.BigEndian.PutUint32(dst[8:12], d2)
-	binary.BigEndian.PutUint32(dst[12:16], d3)
+	binary.BigEndian.PutUint64(dst[0:8], d0)
+	binary.BigEndian.PutUint64(dst[8:16], d1)
 }
 
 func xor(dst, src []byte) {
 	_ = src[15] // compiler hint: bounds check
-	s0 := binary.BigEndian.Uint32(src[0:4])
-	s1 := binary.BigEndian.Uint32(src[4:8])
-	s2 := binary.BigEndian.Uint32(src[8:12])
-	s3 := binary.BigEndian.Uint32(src[12:16])
+	s0 := binary.BigEndian.Uint64(src[0:8])
+	s1 := binary.BigEndian.Uint64(src[8:16])
 
 	_ = dst[15] // compiler hint: bounds check
-	d0 := s0 ^ binary.BigEndian.Uint32(dst[0:4])
-	d1 := s1 ^ binary.BigEndian.Uint32(dst[4:8])
-	d2 := s2 ^ binary.BigEndian.Uint32(dst[8:12])
-	d3 := s3 ^ binary.BigEndian.Uint32(dst[12:16])
+	d0 := s0 ^ binary.BigEndian.Uint64(dst[0:8])
+	d1 := s1 ^ binary.BigEndian.Uint64(dst[8:16])
 
-	binary.BigEndian.PutUint32(dst[0:4], d0)
-	binary.BigEndian.PutUint32(dst[4:8], d1)
-	binary.BigEndian.PutUint32(dst[8:12], d2)
-	binary.BigEndian.PutUint32(dst[12:16], d3)
+	binary.BigEndian.PutUint64(dst[0:8], d0)
+	binary.BigEndian.PutUint64(dst[8:16], d1)
 }
 
 func decodeAuthKey(opt AuthOptions) ([]byte, error) {
