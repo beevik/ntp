@@ -474,14 +474,9 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 
 	// Compose a remote "host:port" address string if the address string
 	// doesn't already contain a port.
-	remoteAddress := address
-	_, _, err := net.SplitHostPort(address)
+	remoteAddress, err := fixHostPort(address, opt.Port)
 	if err != nil {
-		if strings.Contains(err.Error(), "missing port") {
-			remoteAddress = net.JoinHostPort(address, strconv.Itoa(opt.Port))
-		} else {
-			return nil, 0, err
-		}
+		return nil, 0, err
 	}
 
 	// Connect to the remote server.
@@ -638,6 +633,12 @@ func defaultDialer(localAddress, remoteAddress string) (net.Conn, error) {
 // dialWrapper is used to wrap the deprecated Dial callback in QueryOptions.
 func dialWrapper(la, ra string,
 	dial func(la string, lp int, ra string, rp int) (net.Conn, error)) (net.Conn, error) {
+	var err error
+	ra, err = fixHostPort(ra, defaultNtpPort)
+	if err != nil {
+		return nil, err
+	}
+
 	rhost, rport, err := net.SplitHostPort(ra)
 	if err != nil {
 		return nil, err
@@ -649,6 +650,41 @@ func dialWrapper(la, ra string,
 	}
 
 	return dial(la, 0, rhost, rportValue)
+}
+
+// fixHostPort examines an address in one of the accepted forms and fixes it
+// to include a port number if necessary.
+func fixHostPort(address string, defaultPort int) (fixed string, err error) {
+	// If address is wrapped in brackets, parse out the port (if any).
+	if address[0] == '[' {
+		end := strings.IndexByte(address, ']')
+		switch {
+		case end < 0:
+			return "", errors.New("missing ']' in address")
+		case end+1 == len(address):
+			return fmt.Sprintf("%s:%d", address, defaultPort), nil
+		case address[end+1] == ':':
+			return address, nil
+		default:
+			return "", errors.New("unexpected character following ']' in address")
+		}
+	}
+
+	// No colons? Must be an IPv4 or domain address without a port.
+	last := strings.LastIndexByte(address, ':')
+	if last < 0 {
+		return fmt.Sprintf("%s:%d", address, defaultPort), nil
+	}
+
+	// Exactly one colon? Must be an IPv4 or domain address with a port. (IPv6
+	// addresses are guaranteed to have more than one colon.)
+	prev := strings.LastIndexByte(address[:last], ':')
+	if prev < 0 {
+		return address, nil
+	}
+
+	// Two or more colons means we must have an IPv6 address without a port.
+	return fmt.Sprintf("[%s]:%d", address, defaultPort), nil
 }
 
 // generateResponse processes NTP header fields along with the its receive

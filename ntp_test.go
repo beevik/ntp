@@ -225,6 +225,42 @@ func TestOfflineCustomDialerDeprecated(t *testing.T) {
 	assert.True(t, dialerCalled)
 }
 
+func TestOfflineFixHostPort(t *testing.T) {
+	const defaultPort = 123
+
+	cases := []struct {
+		address string
+		fixed   string
+		errMsg  string
+	}{
+		{"192.168.1.1", "192.168.1.1:123", ""},
+		{"192.168.1.1:1000", "192.168.1.1:1000", ""},
+		{"[192.168.1.1]:1000", "[192.168.1.1]:1000", ""},
+		{"www.example.com", "www.example.com:123", ""},
+		{"www.example.com:1000", "www.example.com:1000", ""},
+		{"[www.example.com]:1000", "[www.example.com]:1000", ""},
+		{"::1", "[::1]:123", ""},
+		{"[::1]", "[::1]:123", ""},
+		{"[::1]:123", "[::1]:123", ""},
+		{"[::1]:1000", "[::1]:1000", ""},
+		{"fe80::1", "[fe80::1]:123", ""},
+		{"[fe80::1]", "[fe80::1]:123", ""},
+		{"[fe80::1]:123", "[fe80::1]:123", ""},
+		{"[fe80::1]:1000", "[fe80::1]:1000", ""},
+		{"[fe80::", "", "missing ']' in address"},
+		{"[fe80::]@", "", "unexpected character following ']' in address"},
+	}
+	for _, c := range cases {
+		fixed, err := fixHostPort(c.address, defaultPort)
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		assert.Equal(t, c.fixed, fixed)
+		assert.Equal(t, c.errMsg, errMsg)
+	}
+}
+
 func TestOfflineKissCode(t *testing.T) {
 	codes := []struct {
 		id  uint32
