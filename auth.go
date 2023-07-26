@@ -154,6 +154,10 @@ func xor(dst, src []byte) {
 }
 
 func decodeAuthKey(opt AuthOptions) ([]byte, error) {
+	if opt.Type == AuthNone {
+		return nil, nil
+	}
+
 	var key []byte
 	if len(opt.Key) > 20 {
 		var err error
@@ -177,6 +181,10 @@ func decodeAuthKey(opt AuthOptions) ([]byte, error) {
 }
 
 func appendMAC(buf *bytes.Buffer, opt AuthOptions, key []byte) {
+	if opt.Type == AuthNone {
+		return
+	}
+
 	a := algorithms[opt.Type]
 	payload := buf.Bytes()
 	digest := a.CalcDigest(payload, key)
@@ -185,6 +193,10 @@ func appendMAC(buf *bytes.Buffer, opt AuthOptions, key []byte) {
 }
 
 func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
+	if opt.Type == AuthNone {
+		return nil
+	}
+
 	// Validate that there are enough bytes at the end of the message to
 	// contain a MAC.
 	const headerSize = 48

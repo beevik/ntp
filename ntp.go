@@ -406,18 +406,21 @@ func (r *Response) Validate() error {
 	return nil
 }
 
-// Query requests time data from a remote NTP server. The server address is of
-// the form "host", "host:port", "host%zone:port", "[host]:port" or
-// "[host%zone]:port". If no port is included, NTP default port 123 is used.
-// The response contains information from which an accurate local time can be
-// determined.
+// Query requests time data from a remote NTP server. The response contains
+// information from which a more accurate local time can be inferred.
+//
+// The server address is of the form "host", "host:port", "host%zone:port",
+// "[host]:port" or "[host%zone]:port". The host may contain an IPv4, IPv6 or
+// domain name address. When specifying both a port and an IPv6 address, one
+// of the bracket formats must be used. If no port is included, NTP default
+// port 123 is used.
 func Query(address string) (*Response, error) {
 	return QueryWithOptions(address, QueryOptions{})
 }
 
 // QueryWithOptions performs the same function as Query but allows for the
-// customization of certain query behaviors. See the comment for Query for
-// more information.
+// customization of certain query behaviors. See the comments for Query and
+// QueryOptions for further details.
 func QueryWithOptions(address string, opt QueryOptions) (*Response, error) {
 	h, now, err := getTime(address, &opt)
 	if err != nil && err != ErrAuthFailed {
@@ -427,11 +430,15 @@ func QueryWithOptions(address string, opt QueryOptions) (*Response, error) {
 	return generateResponse(h, now, err), nil
 }
 
-// Time returns the current local time using information returned from the
-// remote NTP server. The server address is of the form "host", "host:port",
-// "host%zone:port", "[host]:port" or "[host%zone]:port". If no port is
-// included, NTP default port 123 is used. On error, Time returns the local
+// Time returns the current, corrected local time using information returned
+// from the remote NTP server. On error, Time returns the uncorrected local
 // system time.
+//
+// The server address is of the form "host", "host:port", "host%zone:port",
+// "[host]:port" or "[host%zone]:port". The host may contain an IPv4, IPv6 or
+// domain name address. When specifying both a port and an IPv6 address, one
+// of the bracket formats must be used. If no port is included, NTP default
+// port 123 is used.
 func Time(address string) (time.Time, error) {
 	r, err := Query(address)
 	if err != nil {
@@ -472,8 +479,8 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 		opt.Dialer = defaultDialer
 	}
 
-	// Compose a remote "host:port" address string if the address string
-	// doesn't already contain a port.
+	// Compose a conforming host:port remote address string if the address
+	// string doesn't already contain a port.
 	remoteAddress, err := fixHostPort(address, opt.Port)
 	if err != nil {
 		return nil, 0, err
@@ -490,16 +497,6 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	if opt.TTL != 0 {
 		ipcon := ipv4.NewConn(con)
 		err = ipcon.SetTTL(opt.TTL)
-		if err != nil {
-			return nil, 0, err
-		}
-	}
-
-	// If using symmetric key authentication, decode and validate the auth key
-	// string.
-	var decodedAuthKey []byte
-	if opt.Auth.Type != AuthNone {
-		decodedAuthKey, err = decodeAuthKey(opt.Auth)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -541,10 +538,15 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 		}
 	}
 
-	// Append an authentication MAC if requested.
-	if opt.Auth.Type != AuthNone {
-		appendMAC(&xmitBuf, opt.Auth, decodedAuthKey)
+	// If using symmetric key authentication, decode and validate the auth key
+	// string.
+	authKey, err := decodeAuthKey(opt.Auth)
+	if err != nil {
+		return nil, 0, err
 	}
+
+	// Append a MAC if authentication is being used.
+	appendMAC(&xmitBuf, opt.Auth, authKey)
 
 	// Transmit the query and keep track of when it was transmitted.
 	xmitTime := time.Now()
@@ -568,7 +570,7 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	}
 	recvTime := xmitTime.Add(delta)
 
-	// Deserialize the response header.
+	// Parse the response header.
 	recvBuf = recvBuf[:recvBytes]
 	recvReader := bytes.NewReader(recvBuf)
 	err = binary.Read(recvReader, binary.BigEndian, recvHdr)
@@ -582,12 +584,6 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 		if err != nil {
 			return nil, 0, err
 		}
-	}
-
-	// Perform authentication of the server response.
-	var authErr error
-	if opt.Auth.Type != AuthNone {
-		authErr = verifyMAC(recvBuf, opt.Auth, decodedAuthKey)
 	}
 
 	// Check for invalid fields.
@@ -607,6 +603,9 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	// Correct the received message's origin time using the actual
 	// transmit time.
 	recvHdr.OriginTime = toNtpTime(xmitTime)
+
+	// Perform authentication of the server response.
+	authErr := verifyMAC(recvBuf, opt.Auth, authKey)
 
 	return recvHdr, toNtpTime(recvTime), authErr
 }
@@ -633,12 +632,6 @@ func defaultDialer(localAddress, remoteAddress string) (net.Conn, error) {
 // dialWrapper is used to wrap the deprecated Dial callback in QueryOptions.
 func dialWrapper(la, ra string,
 	dial func(la string, lp int, ra string, rp int) (net.Conn, error)) (net.Conn, error) {
-	var err error
-	ra, err = fixHostPort(ra, defaultNtpPort)
-	if err != nil {
-		return nil, err
-	}
-
 	rhost, rport, err := net.SplitHostPort(ra)
 	if err != nil {
 		return nil, err
@@ -655,7 +648,7 @@ func dialWrapper(la, ra string,
 // fixHostPort examines an address in one of the accepted forms and fixes it
 // to include a port number if necessary.
 func fixHostPort(address string, defaultPort int) (fixed string, err error) {
-	// If address is wrapped in brackets, parse out the port (if any).
+	// If the address is wrapped in brackets, append a port if necessary.
 	if address[0] == '[' {
 		end := strings.IndexByte(address, ']')
 		switch {
@@ -670,14 +663,15 @@ func fixHostPort(address string, defaultPort int) (fixed string, err error) {
 		}
 	}
 
-	// No colons? Must be an IPv4 or domain address without a port.
+	// No colons? Must be a port-less IPv4 or domain address.
 	last := strings.LastIndexByte(address, ':')
 	if last < 0 {
 		return fmt.Sprintf("%s:%d", address, defaultPort), nil
 	}
 
-	// Exactly one colon? Must be an IPv4 or domain address with a port. (IPv6
-	// addresses are guaranteed to have more than one colon.)
+	// Exactly one colon? A port have been included along with an IPv4 or
+	// domain address. (IPv6 addresses are guaranteed to have more than one
+	// colon.)
 	prev := strings.LastIndexByte(address[:last], ':')
 	if prev < 0 {
 		return address, nil
