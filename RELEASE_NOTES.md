@@ -1,3 +1,17 @@
+Release v1.3.0
+==============
+
+**Changes**
+
+* Added the `ReferenceString` function to `Response`. This generates a
+  stratum-specific string for the `ReferenceID` value.
+* Optimized the AES CMAC calculation for 64-bit architectures.
+
+**Fixes**
+
+* Fixed a bug introduced in release v1.2.0 that was causing IPv6 addresses
+  to be interpreted incorrectly.
+
 Release v1.2.0
 ==============
 
@@ -12,14 +26,14 @@ Release v1.2.0
 * Brought package into further compliance with IETF draft on client data
   minimization.
 * Declared error variables as part of the public API.
-* Added a Dialer field to QueryOptions. This replaces the deprecated Dial
-  field.
-* Added an IsKissOfDeath function to the Response type.
+* Added a `Dialer` field to `QueryOptions`. This replaces the deprecated
+  `Dial` field.
+* Added an `IsKissOfDeath` function to the `Response` type.
 
 **Deprecated**
 
-* Deprecated the Port field in QueryOptions.
-* Deprecated the Dial field in QueryOptions.
+* Deprecated the `Port` field in QueryOptions.
+* Deprecated the `Dial` field in QueryOptions.
 
 Release v1.1.1
 ==============
