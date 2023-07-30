@@ -7,6 +7,7 @@ package ntp
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -18,24 +19,23 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 	// server to be running and configured with known symmetric authentication
 	// keys.
 	//
-	// To run this test, you must execute go test with "-args test_auth". For
+	// To run this test, you must execute it with "-args test_auth". For
 	// example:
 	//
 	//    go test -v -run TestOnlineAuthenticatedQuery -args test_auth
 	//
-	// You must also run a localhost NTP server configured with the following
-	// trusted symmetric keys:
+	// You must also run a local NTP server configured with the following
+	// trusted symmetric keys (shown in chrony.keys format):
 	//
-	// ID TYPE       KEY
-	// -- ----       ---
-	// 1  MD5        cvuZyN4C8HX8hNcAWDWp
-	// 2  SHA1       6931564b4a5a5045766c55356b30656c7666316c
-	// 3  SHA256     7133736e777057764256777739706a5533326164
-	// 4  SHA512     597675555446585868494d447543425971526e74
-	// 5  AES128CMAC 68663033736f77706568707164304049
+	// 1  MD5        ASCII:cvuZyN4C8HX8hNcAWDWp
+	// 2  SHA1       HEX:6931564b4a5a5045766c55356b30656c7666316c
+	// 3  SHA256     HEX:7133736e777057764256777739706a5533326164
+	// 4  SHA512     HEX:597675555446585868494d447543425971526e74
+	// 5  AES128     HEX:68663033736f77706568707164304049
+	// 6  AES256     HEX:47cb76a9a507cf26dc00eb0935f082f390f10308c3e0d58716273a63259a758a
 
 	skip := true
-	for _, arg := range os.Args[1:] {
+	for _, arg := range os.Args {
 		if arg == "test_auth" {
 			skip = false
 		}
@@ -45,6 +45,8 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 		return
 	}
 
+	var errAuthFail = errors.New("timeout")
+
 	cases := []struct {
 		Type        AuthType
 		Key         string
@@ -53,59 +55,78 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 	}{
 		// KeyID 1 (MD5)
 		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 1, nil},
+		{AuthMD5, "ASCII:cvuZyN4C8HX8hNcAWDWp", 1, nil},
 		{AuthMD5, "6376755a794e344338485838684e634157445770", 1, nil},
+		{AuthMD5, "HEX:6376755a794e344338485838684e634157445770", 1, nil},
 		{AuthMD5, "", 1, ErrInvalidAuthKey},
-		{AuthMD5, "6376755a794e344338485838684e63415744577", 1, ErrInvalidAuthKey},
-		{AuthMD5, "6376755a794e344338485838684e63415744577g", 1, ErrInvalidAuthKey},
-		{AuthMD5, "XvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
-		{AuthMD5, "cvuZyN4C8HX8hNcAWDWp", 2, ErrAuthFailed},
-		{AuthSHA1, "cvuZyN4C8HX8hNcAWDWp", 1, ErrAuthFailed},
+		{AuthMD5, "HEX:6376755a794e344338485838684e63415744577", 1, ErrInvalidAuthKey},
+		{AuthMD5, "HEX:6376755a794e344338485838684e63415744577g", 1, ErrInvalidAuthKey},
+		{AuthMD5, "ASCII:XvuZyN4C8HX8hNcAWDWp", 1, errAuthFail},
+		{AuthMD5, "ASCII:cvuZyN4C8HX8hNcAWDWp", 2, errAuthFail},
+		{AuthSHA1, "ASCII:cvuZyN4C8HX8hNcAWDWp", 1, errAuthFail},
 
 		// KeyID 2 (SHA1)
-		{AuthSHA1, "6931564b4a5a5045766c55356b30656c7666316c", 2, nil},
-		{AuthSHA1, "i1VKJZPEvlU5k0elvf1l", 2, nil},
+		{AuthSHA1, "HEX:6931564b4a5a5045766c55356b30656c7666316c", 2, nil},
+		{AuthSHA1, "HEX:6931564b4a5a5045766c55356b30656c7666316c", 2, nil},
+		{AuthSHA1, "ASCII:i1VKJZPEvlU5k0elvf1l", 2, nil},
+		{AuthSHA1, "ASCII:i1VKJZPEvlU5k0elvf1l", 2, nil},
 		{AuthSHA1, "", 2, ErrInvalidAuthKey},
-		{AuthSHA1, "0031564b4a5a5045766c55356b30656c7666316c", 2, ErrAuthFailed},
-		{AuthSHA1, "6931564b4a5a5045766c55356b30656c7666316c", 1, ErrAuthFailed},
-		{AuthMD5, "6931564b4a5a5045766c55356b30656c7666316c", 2, ErrAuthFailed},
+		{AuthSHA1, "HEX:0031564b4a5a5045766c55356b30656c7666316c", 2, errAuthFail},
+		{AuthSHA1, "HEX:6931564b4a5a5045766c55356b30656c7666316c", 1, errAuthFail},
+		{AuthMD5, "HEX:6931564b4a5a5045766c55356b30656c7666316c", 2, errAuthFail},
 
 		// KeyID 3 (SHA256)
-		{AuthSHA256, "7133736e777057764256777739706a5533326164", 3, nil},
-		{AuthSHA256, "q3snwpWvBVww9pjU32ad", 3, nil},
+		{AuthSHA256, "HEX:7133736e777057764256777739706a5533326164", 3, nil},
+		{AuthSHA256, "ASCII:q3snwpWvBVww9pjU32ad", 3, nil},
 		{AuthSHA256, "", 3, ErrInvalidAuthKey},
-		{AuthSHA256, "0033736e777057764256777739706a5533326164", 3, ErrAuthFailed},
-		{AuthSHA256, "7133736e777057764256777739706a5533326164", 2, ErrAuthFailed},
-		{AuthSHA1, "7133736e777057764256777739706a5533326164", 3, ErrAuthFailed},
+		{AuthSHA256, "HEX:0033736e777057764256777739706a5533326164", 3, errAuthFail},
+		{AuthSHA256, "HEX:7133736e777057764256777739706a5533326164", 2, errAuthFail},
+		{AuthSHA1, "HEX:7133736e777057764256777739706a5533326164", 3, errAuthFail},
 
-		// KeyID 4 (SHA512)
-		{AuthSHA512, "597675555446585868494d447543425971526e74", 4, nil},
-		{AuthSHA512, "YvuUTFXXhIMDuCBYqRnt", 4, nil},
+		// // KeyID 4 (SHA512)
+		{AuthSHA512, "HEX:597675555446585868494d447543425971526e74", 4, nil},
+		{AuthSHA512, "ASCII:YvuUTFXXhIMDuCBYqRnt", 4, nil},
 		{AuthSHA512, "", 4, ErrInvalidAuthKey},
-		{AuthSHA512, "007675555446585868494d447543425971526e74", 4, ErrAuthFailed},
-		{AuthSHA512, "597675555446585868494d447543425971526e74", 3, ErrAuthFailed},
-		{AuthSHA256, "597675555446585868494d447543425971526e74", 4, ErrAuthFailed},
+		{AuthSHA512, "HEX:007675555446585868494d447543425971526e74", 4, errAuthFail},
+		{AuthSHA512, "HEX:597675555446585868494d447543425971526e74", 3, errAuthFail},
+		{AuthSHA256, "HEX:597675555446585868494d447543425971526e74", 4, errAuthFail},
 
 		// KeyID 5 (AES128)
-		{AuthAES128, "68663033736f77706568707164304049", 5, nil},
-		{AuthAES128, "68663033736f77706568707164304049fefefefe", 5, nil},
-		{AuthAES128, "hf03sowpehpqd0@I", 5, nil},
+		{AuthAES128, "HEX:68663033736f77706568707164304049", 5, nil},
+		{AuthAES128, "HEX:68663033736f77706568707164304049fefefefe", 5, nil},
+		{AuthAES128, "ASCII:hf03sowpehpqd0@I", 5, nil},
 		{AuthAES128, "", 5, ErrInvalidAuthKey},
-		{AuthAES128, "00663033736f77706568707164304049", 5, ErrAuthFailed},
-		{AuthAES128, "68663033736f77706568707164304049", 4, ErrAuthFailed},
-		{AuthMD5, "68663033736f77706568707164304049", 5, ErrAuthFailed},
+		{AuthAES128, "HEX:00663033736f77706568707164304049", 5, errAuthFail},
+		{AuthAES128, "HEX:68663033736f77706568707164304049", 4, errAuthFail},
+		{AuthMD5, "HEX:68663033736f77706568707164304049", 5, errAuthFail},
+
+		// KeyID 6 (AES256)
+		{AuthAES256, "HEX:47cb76a9a507cf26dc00eb0935f082f390f10308c3e0d58716273a63259a758a", 6, nil},
+		{AuthAES256, "", 6, ErrInvalidAuthKey},
+		{AuthAES256, "HEX:00cb76a9a507cf26dc00eb0935f082f390f10308c3e0d58716273a63259a758a", 6, errAuthFail},
+		{AuthAES256, "HEX:47cb76a9a507cf26dc00eb0935f082f390f10308c3e0d58716273a63259a758a", 5, errAuthFail},
+		{AuthMD5, "HEX:47cb76a9a507cf26dc00eb0935f082f390f10308c3e0d58716273a63259a758a", 6, errAuthFail},
 	}
 
-	host := "localhost"
 	for i, c := range cases {
 		opt := QueryOptions{
-			Timeout: 1 * time.Second,
+			Timeout: 250 * time.Millisecond,
 			Auth:    AuthOptions{c.Type, c.Key, c.KeyID},
 		}
 		r, err := QueryWithOptions(host, opt)
+		if c.ExpectedErr == errAuthFail {
+			// With old NTP servers, failed authentication leads to Crypto-NAK
+			// (ErrAuthFailed). With modern NTP servers, it leads to an I/O
+			// timeout error.
+			if err != ErrAuthFailed && !strings.Contains(err.Error(), "timeout") {
+				t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
+			}
+			continue
+		}
 		if c.ExpectedErr != nil && c.ExpectedErr == err {
 			continue
 		}
-		if isNil(t, host, err) {
+		if err == nil {
 			err = r.Validate()
 			if err != c.ExpectedErr {
 				t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)

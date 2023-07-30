@@ -7,6 +7,7 @@ package ntp
 import (
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +15,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// The NTP server to use for online unit tests. May be overridden by the
+// NTP_HOST environment variable.
+var host string = "0.beevik-ntp.pool.ntp.org"
+
 const (
-	host       = "0.beevik-ntp.pool.ntp.org"
 	refID      = 0xc0a80001
 	timeFormat = "Mon Jan _2 2006  15:04:05.00000000 (MST)"
 )
+
+func init() {
+	h := os.Getenv("NTP_HOST")
+	if h != "" {
+		host = h
+	}
+}
 
 func isNil(t *testing.T, host string, err error) bool {
 	switch {

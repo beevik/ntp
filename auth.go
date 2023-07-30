@@ -17,11 +17,9 @@ import (
 )
 
 // AuthType specifies the cryptographic hash algorithm used to generate a
-// symmetric key authentication digest (or CMAC) for an NTP message. Although
-// in theory many algorithms are supported by well-known NTP servers, in
-// practice only MD5 and SHA1 are commonly used. Please note that MD5 and SHA1
-// are no longer considered secure; they appear here solely for compatibility
-// with existing NTP server implementations.
+// symmetric key authentication digest (or CMAC) for an NTP message. Please
+// note that MD5 and SHA1 are no longer considered secure; they appear here
+// solely for compatibility with existing NTP server implementations.
 type AuthType int
 
 const (
@@ -31,6 +29,7 @@ const (
 	AuthSHA256                 // SHA-2 digest (256 bits)
 	AuthSHA512                 // SHA-2 digest (512 bits)
 	AuthAES128                 // AES-128-CMAC
+	AuthAES256                 // AES-256-CMAC
 )
 
 // AuthOptions contains fields used to configure symmetric key authentication
@@ -40,9 +39,11 @@ type AuthOptions struct {
 	// authentication digest or CMAC.
 	Type AuthType
 
-	// The cryptographic key used by the client to perform the authentication.
-	// If the key string is longer than 20 characters, then it is assumed to
-	// be hex-encoded. Otherwise it is assumed to be ASCII-encoded.
+	// The cryptographic key used by the client to perform authentication. The
+	// key may be hex-encoded or ascii-encoded. To use a hex-encoded key,
+	// prefix it by "HEX:". To use an ascii-encoded key, prefix it by
+	// "ASCII:". For example, "HEX:6931564b4a5a5045766c55356b30656c7666316c"
+	// or "ASCII:cvuZyN4C8HX8hNcAWDWp".
 	Key string
 
 	// The identifier used by the NTP server to identify which key to use
@@ -62,6 +63,7 @@ var algorithms = []struct {
 	{4, 32, 20, calcDigest_SHA256}, // AuthSHA256
 	{4, 32, 20, calcDigest_SHA512}, // AuthSHA512
 	{16, 16, 16, calcCMAC_AES},     // AuthAES128
+	{32, 32, 16, calcCMAC_AES},     // AuthAES256
 }
 
 func calcDigest_MD5(payload, key []byte) []byte {
@@ -153,20 +155,31 @@ func xor(dst, src []byte) {
 	binary.BigEndian.PutUint64(dst[8:16], d1)
 }
 
-func decodeAuthKey(opt AuthOptions) ([]byte, error) {
+func decodeAuthKey(opt AuthOptions) (key []byte, err error) {
 	if opt.Type == AuthNone {
 		return nil, nil
 	}
 
-	var key []byte
-	if len(opt.Key) > 20 {
-		var err error
-		key, err = hex.DecodeString(opt.Key)
+	var keyIn string
+	var isHex bool
+	switch {
+	case len(opt.Key) >= 4 && opt.Key[:4] == "HEX:":
+		isHex, keyIn = true, opt.Key[4:]
+	case len(opt.Key) >= 6 && opt.Key[:6] == "ASCII:":
+		isHex, keyIn = false, opt.Key[6:]
+	case len(opt.Key) > 20:
+		isHex, keyIn = true, opt.Key
+	default:
+		isHex, keyIn = false, opt.Key
+	}
+
+	if isHex {
+		key, err = hex.DecodeString(keyIn)
 		if err != nil {
 			return nil, ErrInvalidAuthKey
 		}
 	} else {
-		key = []byte(opt.Key)
+		key = []byte(keyIn)
 	}
 
 	a := algorithms[opt.Type]
