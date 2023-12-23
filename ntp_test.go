@@ -270,6 +270,7 @@ func TestOfflineFixHostPort(t *testing.T) {
 		{"[::ffff:192.168.1.1]", "[::ffff:192.168.1.1]:123", ""},
 		{"[::ffff:192.168.1.1]:123", "[::ffff:192.168.1.1]:123", ""},
 		{"[::ffff:192.168.1.1]:1000", "[::ffff:192.168.1.1]:1000", ""},
+		{"", "", "address string is empty"},
 	}
 	for _, c := range cases {
 		fixed, err := fixHostPort(c.address, defaultPort)

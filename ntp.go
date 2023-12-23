@@ -648,6 +648,10 @@ func dialWrapper(la, ra string,
 // fixHostPort examines an address in one of the accepted forms and fixes it
 // to include a port number if necessary.
 func fixHostPort(address string, defaultPort int) (fixed string, err error) {
+	if len(address) == 0 {
+		return "", errors.New("address string is empty")
+	}
+
 	// If the address is wrapped in brackets, append a port if necessary.
 	if address[0] == '[' {
 		end := strings.IndexByte(address, ']')
