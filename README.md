@@ -1,4 +1,5 @@
 [![GoDoc](https://godoc.org/github.com/beevik/ntp?status.svg)](https://godoc.org/github.com/beevik/ntp)
+[![Go](https://github.com/beevik/ntp/actions/workflows/go.yml/badge.svg)](https://github.com/beevik/ntp/actions/workflows/go.yml)
 
 ntp
 ===
