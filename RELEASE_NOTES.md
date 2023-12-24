@@ -1,3 +1,17 @@
+Release v1.3.1
+==============
+
+**Changes**
+
+* Added AES-256-CMAC support for symmetric authentication.
+* Symmetric auth keys may now be specified as ASCII or HEX using the "ASCII:"
+  or "HEX:" prefixes.
+* Updated dependencies to address security issues.
+
+**Fixes**
+
+* Added proper handling of the empty string when used as a server address.
+
 Release v1.3.0
 ==============
 
