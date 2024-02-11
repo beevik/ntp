@@ -169,6 +169,11 @@ func (h *header) setLeap(li LeapIndicator) {
 	h.LiVnMode = (h.LiVnMode & 0x3f) | uint8(li)<<6
 }
 
+// getVersion returns the version value in the header.
+func (h *header) getVersion() int {
+	return int((h.LiVnMode >> 3) & 0x7)
+}
+
 // getMode returns the mode value in the header.
 func (h *header) getMode() mode {
 	return mode(h.LiVnMode & 0x07)
@@ -260,6 +265,9 @@ type Response struct {
 
 	// Precision is the reported precision of the server's clock.
 	Precision time.Duration
+
+	// Version is the NTP protocol version number reported by the server.
+	Version int
 
 	// Stratum is the "stratum level" of the server. The smaller the number,
 	// the closer the server is to the reference clock. Stratum 1 servers are
@@ -693,6 +701,7 @@ func generateResponse(h *header, recvTime ntpTime, authErr error) *Response {
 		ClockOffset:    offset(h.OriginTime, h.ReceiveTime, h.TransmitTime, recvTime),
 		RTT:            rtt(h.OriginTime, h.ReceiveTime, h.TransmitTime, recvTime),
 		Precision:      toInterval(h.Precision),
+		Version:        h.getVersion(),
 		Stratum:        h.Stratum,
 		ReferenceID:    h.ReferenceID,
 		ReferenceTime:  h.ReferenceTime.Time(),

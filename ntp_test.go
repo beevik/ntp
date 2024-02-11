@@ -68,6 +68,7 @@ func logResponse(t *testing.T, r *Response) {
 	t.Logf("[%s]  SystemTime: %s", host, now.Format(timeFormat))
 	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
 	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
+	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]       RefID: %s (0x%08x)", host, r.ReferenceString(), r.ReferenceID)
 	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
