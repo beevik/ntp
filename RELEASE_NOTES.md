@@ -1,3 +1,10 @@
+Release v1.4.1
+==============
+
+**Updates**
+
+* Upgraded package dependencies to retrieve security fixes.
+
 Release v1.4.0
 ==============
 
