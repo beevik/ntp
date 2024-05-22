@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The NTP server to use for online unit tests. May be overridden by the
@@ -385,6 +386,26 @@ func TestOfflineOffsetCalculationNegative(t *testing.T) {
 	// (1 + -2) / 2 = -1 / 2
 	expectedOffset := -time.Second / 2
 	offset := offset(t1, t2, t3, t4)
+	assert.Equal(t, expectedOffset, offset)
+}
+
+func TestOfflineOffsetCalculationNegativeBig(t *testing.T) {
+	// these timestamps are in different NTP epochs,
+	// see:
+	//  * https://www.eecis.udel.edu/~mills/y2k.html
+	serverNow, err := time.Parse("2006-01-02 15:04:05", "2024-05-22 11:30:15")
+	require.NoError(t, err)
+
+	clientNow, err := time.Parse("2006-01-02 15:04:05", "2047-01-01 00:00:00")
+	require.NoError(t, err)
+
+	org := toNtpTime(clientNow)
+	rec := toNtpTime(serverNow)
+	xmt := toNtpTime(serverNow.Add(1 * time.Second))
+	dst := toNtpTime(clientNow.Add(1 * time.Second))
+
+	expectedOffset := -clientNow.Sub(serverNow)
+	offset := offset(org, rec, xmt, dst)
 	assert.Equal(t, expectedOffset, offset)
 }
 
