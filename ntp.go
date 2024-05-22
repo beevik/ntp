@@ -749,9 +749,18 @@ func rtt(org, rec, xmt, dst ntpTime) time.Duration {
 func offset(org, rec, xmt, dst ntpTime) time.Duration {
 	// local clock offset
 	//   offset = ((rec-org) + (xmt-dst)) / 2
-	a := rec.Time().Sub(org.Time())
-	b := xmt.Time().Sub(dst.Time())
-	return (a + b) / time.Duration(2)
+	// The inputs are 64-bit unsigned ints. The output is a 63-bit signed int.
+	// Need to handle conversions with care. See:
+	// https://www.eecis.udel.edu/~mills/time.html
+	a := int64(rec) - int64(org)
+	b := int64(xmt) - int64(dst)
+	d := (a + b) / 2
+
+	if d > 0 {
+		return ntpTime(d).Duration()
+	} else {
+		return -ntpTime(-d).Duration()
+	}
 }
 
 func minError(org, rec, xmt, dst ntpTime) time.Duration {
