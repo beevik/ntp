@@ -1,3 +1,10 @@
+Release v1.4.2
+==============
+
+**Fixes**
+
+* Fixed a bug in clock offset calculation.
+
 Release v1.4.1
 ==============
 
