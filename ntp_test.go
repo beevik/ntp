@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // The NTP server to use for online unit tests. May be overridden by the
@@ -390,23 +389,38 @@ func TestOfflineOffsetCalculationNegative(t *testing.T) {
 }
 
 func TestOfflineOffsetCalculationNegativeBig(t *testing.T) {
-	// these timestamps are in different NTP epochs,
-	// see:
-	//  * https://www.eecis.udel.edu/~mills/y2k.html
-	serverNow, err := time.Parse("2006-01-02 15:04:05", "2024-05-22 11:30:15")
-	require.NoError(t, err)
+	cases := []struct {
+		ClientTime string
+		ServerTime string
+	}{
+		// both timestamps in NTP era 0 (with large difference)
+		{"1970-01-01 00:00:00", "2024-05-30 00:00:00"},
+		{"2024-05-30 00:00:00", "1970-01-01 00:00:00"},
 
-	clientNow, err := time.Parse("2006-01-02 15:04:05", "2047-01-01 00:00:00")
-	require.NoError(t, err)
+		// one timestamp in NTP era 0 and another in era 1
+		{"2047-01-01 00:00:00", "2024-01-01 00:00:00"},
+		{"2024-01-01 00:00:00", "2047-01-01 00:00:00"},
 
-	org := toNtpTime(clientNow)
-	rec := toNtpTime(serverNow)
-	xmt := toNtpTime(serverNow.Add(1 * time.Second))
-	dst := toNtpTime(clientNow.Add(1 * time.Second))
+		// both timestamps in NTP era 1
+		{"2047-01-01 00:00:00", "2047-02-01 00:00:00"},
+		{"2047-02-01 00:00:00", "2047-01-01 00:00:00"},
+	}
 
-	expectedOffset := -clientNow.Sub(serverNow)
-	offset := offset(org, rec, xmt, dst)
-	assert.Equal(t, expectedOffset, offset)
+	timeFormat := "2006-01-02 15:04:05"
+
+	for _, c := range cases {
+		clientTime, _ := time.Parse(timeFormat, c.ClientTime)
+		serverTime, _ := time.Parse(timeFormat, c.ServerTime)
+
+		org := toNtpTime(clientTime)
+		rec := toNtpTime(serverTime)
+		xmt := toNtpTime(serverTime.Add(1 * time.Second))
+		dst := toNtpTime(clientTime.Add(1 * time.Second))
+
+		expectedValue := serverTime.Sub(clientTime)
+		value := offset(org, rec, xmt, dst)
+		assert.Equal(t, expectedValue, value)
+	}
 }
 
 func TestOfflineReferenceString(t *testing.T) {

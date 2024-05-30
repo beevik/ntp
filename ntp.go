@@ -735,32 +735,32 @@ func generateResponse(h *header, recvTime ntpTime, authErr error) *Response {
 //   dst = Destination Timestamp (client receive time)
 
 func rtt(org, rec, xmt, dst ntpTime) time.Duration {
-	// round trip delay time
-	//   rtt = (dst-org) - (xmt-rec)
-	a := dst.Time().Sub(org.Time())
-	b := xmt.Time().Sub(rec.Time())
+	a := int64(dst - org)
+	b := int64(xmt - rec)
 	rtt := a - b
 	if rtt < 0 {
 		rtt = 0
 	}
-	return rtt
+	return ntpTime(rtt).Duration()
 }
 
 func offset(org, rec, xmt, dst ntpTime) time.Duration {
-	// local clock offset
-	//   offset = ((rec-org) + (xmt-dst)) / 2
-	// The inputs are 64-bit unsigned ints. The output is a 63-bit signed int.
-	// Need to handle conversions with care. See:
-	// https://www.eecis.udel.edu/~mills/time.html
-	a := int64(rec) - int64(org)
-	b := int64(xmt) - int64(dst)
-	d := (a + b) / 2
+	// The inputs are 64-bit unsigned integer timestamps. These timestamps can
+	// "roll over" at the end of an NTP era, which occurs approximately every
+	// 136 years starting from the year 1900. To ensure an accurate offset
+	// calculation when an era boundary is crossed, we need to take care that
+	// the difference between two 64-bit timestamp values is accurately
+	// calculated even when they are in neighboring eras.
+	//
+	// See: https://www.eecis.udel.edu/~mills/y2k.html
 
-	if d > 0 {
-		return ntpTime(d).Duration()
-	} else {
-		return -ntpTime(-d).Duration()
+	a := int64(rec - org)
+	b := int64(xmt - dst)
+	offset := a + (b-a)/2
+	if offset < 0 {
+		return -ntpTime(-offset).Duration()
 	}
+	return ntpTime(offset).Duration()
 }
 
 func minError(org, rec, xmt, dst ntpTime) time.Duration {
