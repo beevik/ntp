@@ -71,7 +71,8 @@ const (
 
 // Internal variables
 var (
-	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+	ntpEra0 = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+	ntpEra1 = time.Date(2036, 2, 7, 6, 28, 16, 0, time.UTC)
 )
 
 type mode uint8
@@ -107,13 +108,21 @@ func (t ntpTime) Duration() time.Duration {
 // Time interprets the fixed-point ntpTime as an absolute time and returns
 // the corresponding time.Time value.
 func (t ntpTime) Time() time.Time {
-	return ntpEpoch.Add(t.Duration())
+	// Assume NTP era 1 (year 2036+) if the raw timestamp suggests a year
+	// before 1970. Otherwise assume NTP era 0. This allows the function to
+	// report an accurate time value both before and after the 0-to-1 era
+	// rollover.
+	const t1970 = 0x83aa7e8000000000
+	if uint64(t) < t1970 {
+		return ntpEra1.Add(t.Duration())
+	}
+	return ntpEra0.Add(t.Duration())
 }
 
 // toNtpTime converts the time.Time value t into its 64-bit fixed-point
 // ntpTime representation.
 func toNtpTime(t time.Time) ntpTime {
-	nsec := uint64(t.Sub(ntpEpoch))
+	nsec := uint64(t.Sub(ntpEra0))
 	sec := nsec / nanoPerSec
 	nsec = uint64(nsec-sec*nanoPerSec) << 32
 	frac := uint64(nsec / nanoPerSec)
@@ -249,15 +258,16 @@ type QueryOptions struct {
 // A Response contains time data, some of which is returned by the NTP server
 // and some of which is calculated by this client.
 type Response struct {
-	// Time is the transmit time reported by the server just before it
-	// responded to the client's NTP query. You should not use this value
-	// for time synchronization purposes. Use the ClockOffset instead.
-	Time time.Time
-
 	// ClockOffset is the estimated offset of the local system clock relative
-	// to the server's clock. Add this value to subsequent local system time
-	// measurements in order to obtain a more accurate time.
+	// to the server's clock. Add this value to subsequent local system clock
+	// times in order to obtain a time that is synchronized to the server's
+	// clock.
 	ClockOffset time.Duration
+
+	// Time is the time the server transmitted this response, measured using
+	// its own clock. You should not use this value for time synchronization
+	// purposes. Add ClockOffset to your system clock instead.
+	Time time.Time
 
 	// RTT is the measured round-trip-time delay estimate between the client
 	// and the server.
@@ -285,8 +295,7 @@ type Response struct {
 	// code".
 	ReferenceID uint32
 
-	// ReferenceTime is the time when the server's system clock was last
-	// set or corrected.
+	// ReferenceTime is the time the server last updated its local clock.
 	ReferenceTime time.Time
 
 	// RootDelay is the server's estimated aggregate round-trip-time delay to

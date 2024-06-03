@@ -388,10 +388,10 @@ func TestOfflineOffsetCalculationNegative(t *testing.T) {
 	assert.Equal(t, expectedOffset, offset)
 }
 
-func TestOfflineOffsetCalculationNegativeBig(t *testing.T) {
+func TestOfflineOffsetRollover(t *testing.T) {
 	cases := []struct {
-		ClientTime string
-		ServerTime string
+		clientTime string
+		serverTime string
 	}{
 		// both timestamps in NTP era 0 (with large difference)
 		{"1970-01-01 00:00:00", "2024-05-30 00:00:00"},
@@ -409,8 +409,8 @@ func TestOfflineOffsetCalculationNegativeBig(t *testing.T) {
 	timeFormat := "2006-01-02 15:04:05"
 
 	for _, c := range cases {
-		clientTime, _ := time.Parse(timeFormat, c.ClientTime)
-		serverTime, _ := time.Parse(timeFormat, c.ServerTime)
+		clientTime, _ := time.Parse(timeFormat, c.clientTime)
+		serverTime, _ := time.Parse(timeFormat, c.serverTime)
 
 		org := toNtpTime(clientTime)
 		rec := toNtpTime(serverTime)
@@ -420,6 +420,42 @@ func TestOfflineOffsetCalculationNegativeBig(t *testing.T) {
 		expectedValue := serverTime.Sub(clientTime)
 		value := offset(org, rec, xmt, dst)
 		assert.Equal(t, expectedValue, value)
+	}
+}
+
+func TestOfflineTimeRollover(t *testing.T) {
+	cases := []struct {
+		timestamp ntpTime
+		time      string
+	}{
+		{0x0000000000000000, "2036-02-07 06:28:16"},
+		{0x0000000100000000, "2036-02-07 06:28:17"},
+		{0x1000000000000000, "2044-08-10 03:52:32"},
+		{0x2000000000000000, "2053-02-11 01:16:48"},
+		{0x3000000000000000, "2061-08-14 22:41:04"},
+		{0x4000000000000000, "2070-02-15 20:05:20"},
+		{0x5000000000000000, "2078-08-19 17:29:36"},
+		{0x6000000000000000, "2087-02-20 14:53:52"},
+		{0x7000000000000000, "2095-08-24 12:18:08"},
+		{0x8000000000000000, "2104-02-26 09:42:24"},
+		{0x83aa7e7000000000, "2106-02-07 06:28:00"},
+		{0x83aa7e8000000000, "1970-01-01 00:00:00"}, // <- ntpTime.Time() wrap
+		{0x9000000000000000, "1976-07-23 00:38:24"},
+		{0xa000000000000000, "1985-01-23 22:02:40"},
+		{0xb000000000000000, "1993-07-27 19:26:56"},
+		{0xc000000000000000, "2002-01-28 16:51:12"},
+		{0xd000000000000000, "2010-08-01 14:15:28"},
+		{0xe000000000000000, "2019-02-02 11:39:44"},
+		{0xf000000000000000, "2027-08-06 09:04:00"},
+		{0xffffffff00000000, "2036-02-07 06:28:15"},
+	}
+
+	timeFormat := "2006-01-02 15:04:05"
+
+	for _, c := range cases {
+		tm, _ := time.Parse(timeFormat, c.time)
+		assert.Equal(t, tm, c.timestamp.Time())
+		assert.Equal(t, c.timestamp, toNtpTime(tm))
 	}
 }
 
