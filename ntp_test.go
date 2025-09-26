@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,6 +153,47 @@ func TestOnlineTTL(t *testing.T) {
 	hdr, _, err := getTime(host, &QueryOptions{TTL: 1, Timeout: 1 * time.Second})
 	assert.Nil(t, hdr)
 	assert.NotNil(t, err)
+}
+
+func TestOnlineCustomGetSystemTime(t *testing.T) {
+	if host == "localhost" {
+		t.Skip("Timeout test not available with localhost NTP server.")
+		return
+	}
+
+	var simuTime atomic.Value
+	simuTime.Store(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	const timerInterval = 1 * time.Millisecond
+	ctx := t.Context()
+
+	// Start a simulated clock independent of the system wall clock,
+	// initialized at 2020-01-01T00:00:00, advancing in 1 ms increments.
+	go func() {
+		ticker := time.NewTicker(timerInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				current := simuTime.Load().(time.Time)
+				simuTime.Store(current.Add(timerInterval))
+			}
+		}
+	}()
+
+	r, err := QueryWithOptions(host, QueryOptions{
+		GetSystemTime: func() time.Time { return simuTime.Load().(time.Time) },
+	})
+	if isNil(t, host, err) {
+		tm := simuTime.Load().(time.Time)
+		trueTime := tm.Add(r.ClockOffset)
+		t.Logf(" Custom Time: %s\n", tm.Format(timeFormat))
+		t.Logf("  ~True Time: %s\n", trueTime.Format(timeFormat))
+		t.Logf("~ClockOffset: %v\n", trueTime.Sub(tm))
+	}
 }
 
 func TestOfflineConvertLong(t *testing.T) {
