@@ -40,6 +40,14 @@ var (
 	ErrServerTickedBackwards  = errors.New("server clock ticked backwards")
 )
 
+// TimeFunc represents a function that returns a time.Time value. It can
+// use sources such as time.Now, a monotonic clock based on runtime.nanotime,
+// or a mocked clock for testing purposes.
+type TimeFunc func() time.Time
+
+// By default, use time.Now().
+var Now TimeFunc = time.Now
+
 // The LeapIndicator is used to warn if a leap second should be inserted
 // or deleted in the last minute of the current month.
 type LeapIndicator uint8
@@ -459,16 +467,16 @@ func QueryWithOptions(address string, opt QueryOptions) (*Response, error) {
 func Time(address string) (time.Time, error) {
 	r, err := Query(address)
 	if err != nil {
-		return time.Now(), err
+		return Now(), err
 	}
 
 	err = r.Validate()
 	if err != nil {
-		return time.Now(), err
+		return Now(), err
 	}
 
 	// Use the response's clock offset to calculate an accurate time.
-	return time.Now().Add(r.ClockOffset), nil
+	return Now().Add(r.ClockOffset), nil
 }
 
 // getTime performs the NTP server query and returns the response header
@@ -566,7 +574,7 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	appendMAC(&xmitBuf, opt.Auth, authKey)
 
 	// Transmit the query and keep track of when it was transmitted.
-	xmitTime := time.Now()
+	xmitTime := Now()
 	_, err = con.Write(xmitBuf.Bytes())
 	if err != nil {
 		return nil, 0, err
@@ -581,7 +589,7 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	// Keep track of the time the response was received. As of go 1.9, the
 	// time package uses a monotonic clock, so delta will never be less than
 	// zero for go version 1.9 or higher.
-	delta := time.Since(xmitTime)
+	delta := Now().Sub(xmitTime)
 	if delta < 0 {
 		delta = 0
 	}
