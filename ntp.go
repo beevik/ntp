@@ -40,14 +40,6 @@ var (
 	ErrServerTickedBackwards  = errors.New("server clock ticked backwards")
 )
 
-// TimeFunc represents a function that returns a time.Time value. It can
-// use sources such as time.Now, a monotonic clock based on runtime.nanotime,
-// or a mocked clock for testing purposes.
-type TimeFunc func() time.Time
-
-// By default, use time.Now().
-var Now TimeFunc = time.Now
-
 // The LeapIndicator is used to warn if a leap second should be inserted
 // or deleted in the last minute of the current month.
 type LeapIndicator uint8
@@ -251,6 +243,12 @@ type QueryOptions struct {
 	// derived from the first parameter to QueryWithOptions.  The
 	// remoteAddress is guaranteed to include a port number.
 	Dialer func(localAddress, remoteAddress string) (net.Conn, error)
+
+	// GetSystemTime is a callback that allows overriding the default time
+	// source used during time synchronization. It can return values from
+	// time.Now, a monotonic clock based on runtime.nanotime, or a simulated
+	// clock for testing purposes. If not specified, time.Now is used.
+	GetSystemTime func() time.Time
 
 	// Dial is a callback used to override the default UDP network dialer.
 	//
@@ -467,16 +465,16 @@ func QueryWithOptions(address string, opt QueryOptions) (*Response, error) {
 func Time(address string) (time.Time, error) {
 	r, err := Query(address)
 	if err != nil {
-		return Now(), err
+		return time.Now(), err
 	}
 
 	err = r.Validate()
 	if err != nil {
-		return Now(), err
+		return time.Now(), err
 	}
 
 	// Use the response's clock offset to calculate an accurate time.
-	return Now().Add(r.ClockOffset), nil
+	return time.Now().Add(r.ClockOffset), nil
 }
 
 // getTime performs the NTP server query and returns the response header
@@ -502,6 +500,9 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	}
 	if opt.Dialer == nil {
 		opt.Dialer = defaultDialer
+	}
+	if opt.GetSystemTime == nil {
+		opt.GetSystemTime = time.Now
 	}
 
 	// Compose a conforming host:port remote address string if the address
@@ -574,7 +575,7 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	appendMAC(&xmitBuf, opt.Auth, authKey)
 
 	// Transmit the query and keep track of when it was transmitted.
-	xmitTime := Now()
+	xmitTime := opt.GetSystemTime()
 	_, err = con.Write(xmitBuf.Bytes())
 	if err != nil {
 		return nil, 0, err
@@ -589,7 +590,7 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	// Keep track of the time the response was received. As of go 1.9, the
 	// time package uses a monotonic clock, so delta will never be less than
 	// zero for go version 1.9 or higher.
-	delta := Now().Sub(xmitTime)
+	delta := opt.GetSystemTime().Sub(xmitTime)
 	if delta < 0 {
 		delta = 0
 	}
