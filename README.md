@@ -82,14 +82,17 @@ include:
   server.
 * `Version`: Which version of the NTP protocol to use (2, 3 or 4).
 * `TTL`: The maximum number of IP hops before the request packet is discarded.
+* `LocalAddress`: The local IP address to use when sending the query. Useful
+  when the host has multiple network interfaces.
 * `Auth`: The symmetric authentication key and algorithm used by the server to
   authenticate the query. The same information is used by the client to
   authenticate the server's response.
 * `Extensions`: Extensions may be added to modify NTP queries before they are
 	transmitted and to process NTP responses after they arrive.
+* `GetSystemTime`: A custom function to obtain the current system time, used
+  to override the default `time.Now` function.
 * `Dialer`: A custom network connection "dialer" function used to override the
   default UDP dialer function.
-
 
 ## Using the NTP pool
 
