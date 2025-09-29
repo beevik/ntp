@@ -1,3 +1,15 @@
+Release v1.5.0
+==============
+
+**Changes**
+
+* Added the `GetSystemTime` field to `QueryOptions`.
+* Updated minimum required Go version to 1.24.
+
+**Fixes**
+
+* Upgraded package dependencies to retrieve security fixes.
+
 Release v1.4.3
 ==============
 
