@@ -244,16 +244,15 @@ type QueryOptions struct {
 	// remoteAddress is guaranteed to include a port number.
 	Dialer func(localAddress, remoteAddress string) (net.Conn, error)
 
-	// GetSystemTime is a callback that allows overriding the default time
-	// source used during time synchronization. It can return values from
-	// time.Now, a monotonic clock based on runtime.nanotime, or a simulated
-	// clock for testing purposes. If not specified, time.Now is used.
-	GetSystemTime func() time.Time
-
 	// Dial is a callback used to override the default UDP network dialer.
 	//
 	// DEPRECATED. Use Dialer instead.
 	Dial func(laddr string, lport int, raddr string, rport int) (net.Conn, error)
+
+	// GetSystemTime is a callback used to override the default method of
+	// obtaining the local system time during time synchronization. If not
+	// specified, time.Now is used.
+	GetSystemTime func() time.Time
 
 	// Port indicates the port used to reach the remote NTP server.
 	//
@@ -590,11 +589,10 @@ func getTime(address string, opt *QueryOptions) (*header, ntpTime, error) {
 	// Keep track of the time the response was received. As of go 1.9, the
 	// time package uses a monotonic clock, so delta will never be less than
 	// zero for go version 1.9 or higher.
-	delta := opt.GetSystemTime().Sub(xmitTime)
-	if delta < 0 {
-		delta = 0
+	recvTime := opt.GetSystemTime()
+	if recvTime.Sub(xmitTime) < 0 {
+		recvTime = xmitTime
 	}
-	recvTime := xmitTime.Add(delta)
 
 	// Parse the response header.
 	recvBuf = recvBuf[:recvBytes]
