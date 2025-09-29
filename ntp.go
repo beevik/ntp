@@ -236,6 +236,11 @@ type QueryOptions struct {
 	// transmitted and to process NTP responses after they arrive.
 	Extensions []Extension
 
+	// GetSystemTime is a callback used to override the default method of
+	// obtaining the local system time during time synchronization. If not
+	// specified, time.Now is used.
+	GetSystemTime func() time.Time
+
 	// Dialer is a callback used to override the default UDP network dialer.
 	// The localAddress is directly copied from the LocalAddress field
 	// specified in QueryOptions. It may be the empty string or a host address
@@ -248,11 +253,6 @@ type QueryOptions struct {
 	//
 	// DEPRECATED. Use Dialer instead.
 	Dial func(laddr string, lport int, raddr string, rport int) (net.Conn, error)
-
-	// GetSystemTime is a callback used to override the default method of
-	// obtaining the local system time during time synchronization. If not
-	// specified, time.Now is used.
-	GetSystemTime func() time.Time
 
 	// Port indicates the port used to reach the remote NTP server.
 	//
