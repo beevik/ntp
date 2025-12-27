@@ -1,4 +1,4 @@
-// Copyright © 2015-2023 Brett Vickers.
+// Copyright © Brett Vickers.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -205,6 +205,11 @@ func appendMAC(buf *bytes.Buffer, opt AuthOptions, key []byte) {
 	binary.Write(buf, binary.BigEndian, digest)
 }
 
+func calcMAC(payload []byte, authType AuthType, key []byte) []byte {
+	a := algorithms[authType]
+	return a.CalcDigest(payload, key)
+}
+
 func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
 	if opt.Type == AuthNone {
 		return nil
@@ -212,10 +217,9 @@ func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
 
 	// Validate that there are enough bytes at the end of the message to
 	// contain a MAC.
-	const headerSize = 48
 	a := algorithms[opt.Type]
 	macLen := 4 + a.DigestSize
-	remain := len(buf) - headerSize
+	remain := len(buf) - ntpHeaderSize
 	if remain < macLen || (remain%4) != 0 {
 		return ErrAuthFailed
 	}
