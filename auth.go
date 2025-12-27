@@ -1,11 +1,10 @@
-// Copyright © 2015-2023 Brett Vickers.
+// Copyright © Brett Vickers.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 package ntp
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/md5"
 	"crypto/sha1"
@@ -17,13 +16,14 @@ import (
 )
 
 // AuthType specifies the cryptographic hash algorithm used to generate a
-// symmetric key authentication digest (or CMAC) for an NTP message. Please
-// note that MD5 and SHA1 are no longer considered secure; they appear here
-// solely for compatibility with existing NTP server implementations.
+// symmetric key authentication code for an NTP message. Please note that MD5
+// and SHA1 are no longer considered secure; they appear here solely for
+// compatibility with existing NTP server implementations. When used with
+// NTPv5, the AES-128-CMAC algorithm should be used.
 type AuthType int
 
 const (
-	AuthNone   AuthType = iota // no authentication
+	AuthNone   AuthType = iota // no symmetric key authentication
 	AuthMD5                    // MD5 digest
 	AuthSHA1                   // SHA-1 digest
 	AuthSHA256                 // SHA-2 digest (256 bits)
@@ -36,7 +36,7 @@ const (
 // for an NTP query.
 type AuthOptions struct {
 	// Type determines the cryptographic hash algorithm used to compute the
-	// authentication digest or CMAC.
+	// authentication code.
 	Type AuthType
 
 	// The cryptographic key used by the client to perform authentication. The
@@ -48,7 +48,7 @@ type AuthOptions struct {
 
 	// The identifier used by the NTP server to identify which key to use
 	// for authentication purposes.
-	KeyID uint16
+	KeyID uint32
 }
 
 var algorithms = []struct {
@@ -193,56 +193,12 @@ func decodeAuthKey(opt AuthOptions) (key []byte, err error) {
 	return key, nil
 }
 
-func appendMAC(buf *bytes.Buffer, opt AuthOptions, key []byte) {
-	if opt.Type == AuthNone {
-		return
-	}
-
-	a := algorithms[opt.Type]
-	payload := buf.Bytes()
-	digest := a.CalcDigest(payload, key)
-	binary.Write(buf, binary.BigEndian, uint32(opt.KeyID))
-	binary.Write(buf, binary.BigEndian, digest)
+func calcMAC(payload []byte, authType AuthType, key []byte) []byte {
+	a := algorithms[authType]
+	return a.CalcDigest(payload, key)
 }
 
-func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
-	if opt.Type == AuthNone {
-		return nil
-	}
-
-	// Check for a trailing crypto-NAK (with no extension fields). Modern NTP
-	// servers no longer send crypto-NAKs, but some older ones do.
-	const headerSize = 48
-	remain := len(buf) - headerSize
-	if remain == 4 {
-		if binary.BigEndian.Uint32(buf[len(buf)-4:]) == 0 {
-			return ErrAuthNAK
-		}
-	}
-
-	// Validate that there are enough bytes at the end of the message to
-	// contain a complete MAC for the hash algorithm.
-	a := algorithms[opt.Type]
-	macLen := 4 + a.DigestSize
-	if remain < macLen || (remain%4) != 0 {
-		return ErrAuthFailed
-	}
-
-	// The key ID returned by the server must be the same as the key ID sent
-	// to the server.
-	payloadLen := len(buf) - macLen
-	mac := buf[payloadLen:]
-	keyID := binary.BigEndian.Uint32(mac[:4])
-	if keyID != uint32(opt.KeyID) {
-		return ErrAuthFailed
-	}
-
-	// Calculate and compare digests.
-	payload := buf[:payloadLen]
-	digest := a.CalcDigest(payload, key)
-	if subtle.ConstantTimeCompare(digest, mac[4:]) != 1 {
-		return ErrAuthFailed
-	}
-
-	return nil
+func getMACSize(authType AuthType) int {
+	a := algorithms[authType]
+	return a.DigestSize
 }

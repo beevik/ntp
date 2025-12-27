@@ -1,4 +1,4 @@
-// Copyright © 2015-2023 Brett Vickers.
+// Copyright © Brett Vickers.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -50,7 +50,7 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 	cases := []struct {
 		Type        AuthType
 		Key         string
-		KeyID       uint16
+		KeyID       uint32
 		ExpectedErr error
 	}{
 		// KeyID 1 (MD5)
@@ -108,28 +108,35 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 		{AuthMD5, "HEX:47cb76a9a507cf26dc00eb0935f082f390f10308c3e0d58716273a63259a758a", 6, errAuthFail},
 	}
 
-	for i, c := range cases {
-		opt := QueryOptions{
-			Timeout: 250 * time.Millisecond,
-			Auth:    AuthOptions{c.Type, c.Key, c.KeyID},
-		}
-		r, err := QueryWithOptions(host, opt)
-		if c.ExpectedErr == errAuthFail {
-			// With old NTP servers, failed authentication leads to Crypto-NAK
-			// (ErrAuthFailed). With modern NTP servers, it leads to an I/O
-			// timeout error.
-			if err != ErrAuthFailed && !strings.Contains(err.Error(), "timeout") {
-				t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
+	for _, v := range []int{4, 5} {
+		t.Logf("Running NTPv%d tests...\n", v)
+		for i, c := range cases {
+			opt := QueryOptions{
+				Version: v,
+				Timeout: 250 * time.Millisecond,
+				Auth:    AuthOptions{c.Type, c.Key, c.KeyID},
 			}
-			continue
-		}
-		if c.ExpectedErr != nil && c.ExpectedErr == err {
-			continue
-		}
-		if err == nil {
-			err = r.Validate()
-			if err != c.ExpectedErr {
-				t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
+			r, err := QueryWithOptions(host, opt)
+			if c.ExpectedErr == errAuthFail {
+				// With old NTP servers, failed authentication leads to Crypto-NAK
+				// (ErrAuthFailed). With modern NTP servers, it leads to an I/O
+				// timeout error.
+				if err != ErrAuthFailed && !strings.Contains(err.Error(), "timeout") {
+					t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
+				}
+				continue
+			}
+			if c.ExpectedErr != nil && c.ExpectedErr == err {
+				continue
+			}
+			if err != nil && c.ExpectedErr == nil {
+				t.Errorf("case %d: expected no error, got error [%v]\n", i, err)
+			}
+			if err == nil {
+				err = r.Validate()
+				if err != c.ExpectedErr {
+					t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
+				}
 			}
 		}
 	}
