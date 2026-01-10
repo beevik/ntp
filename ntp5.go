@@ -161,8 +161,8 @@ func (m *messageV5) getLeap() LeapIndicator {
 	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
 }
 
-// parseV5Message parses the NTPv5 message from a buffer.
-func parseV5Message(data []byte) (*messageV5, error) {
+// parseV5Response parses the NTPv5 response message from a buffer.
+func parseV5Response(data []byte) (*messageV5, error) {
 	if len(data) < msgSize {
 		return nil, ErrInvalidTime
 	}
@@ -189,7 +189,7 @@ func parseV5Message(data []byte) (*messageV5, error) {
 
 // queryV5 performs an NTPv5 time query using the provided connection.
 func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
-	// Generate a random client cookie.
+	// Generate a random client cookie if not set by the caller.
 	clientCookie, err := generateCookie()
 	if err != nil {
 		return nil, err
@@ -228,24 +228,24 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		writeExtCorrection(xmitBuf)
 	}
 
-	// Send the request.
+	// Send the request message.
 	_, err = conn.Write(xmitBuf.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
-	// Receive the response.
+	// Receive the response message.
 	n, err := conn.Read(recvBuf)
 	if err != nil {
 		return nil, err
 	}
 
-	// Keep track of the time the response was received.
+	// Keep track of the time the response message was received.
 	clientRecvTime := opt.GetSystemTime()
 
 	// Parse the response message.
 	recvBuf = recvBuf[:n]
-	m, err := parseV5Message(recvBuf)
+	m, err := parseV5Response(recvBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, ErrServerResponseMismatch
 	}
 
-	// Prepare the response.
+	// Prepare the response struct.
 	r := &Response{
 		Version: 5,
 	}
@@ -399,20 +399,31 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	return r, r.authErr
 }
 
-// buildV5Request creates an NTPv5 request packet and adds all extension
-// fields except for the MAC and correction fields.
+// buildV5Request creates an NTPv5 request message and adds all extension
+// fields except for the MAC and correction extension fields.
 func buildV5Request(opt *QueryOptions, clientCookie uint64) (*bytes.Buffer, error) {
 	// Build the NTPv5 message.
-	m := &messageV5{
-		Precision:    0x20,
+	m := messageV5{
+		Precision:    0,
+		Stratum:      0,
+		Poll:         0,
+		RootDelay:    0,
+		RootDisp:     0,
 		Timescale:    uint8(opt.Timescale),
-		Era:          0, // always 0 for requests
+		Era:          0,
 		Flags:        0,
+		ServerCookie: opt.ServerCookie,
 		ClientCookie: clientCookie,
+		ReceiveTime:  0,
+		TransmitTime: 0,
 	}
 	m.setVersion(5)
 	m.setMode(requestMode)
 	m.setLeap(LeapNoWarning)
+
+	if opt.RequestInterleavedMode {
+		m.Flags |= flagInterleaved
+	}
 
 	// Write the message to a buffer.
 	buf := new(bytes.Buffer)

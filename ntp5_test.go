@@ -325,7 +325,7 @@ func TestOfflineV5BuildRequest(t *testing.T) {
 	data := buf.Bytes()
 	require.GreaterOrEqual(t, len(data), msgSize)
 
-	m, err := parseV5Message(data)
+	m, err := parseV5Response(data)
 	require.NoError(t, err)
 	assert.Equal(t, 5, m.getVersion())
 	assert.Equal(t, requestMode, m.getMode())
@@ -367,7 +367,7 @@ func TestOfflineV5ParseMsg(t *testing.T) {
 	binary.Write(buf, binary.BigEndian, m.ReceiveTime)
 	binary.Write(buf, binary.BigEndian, m.TransmitTime)
 
-	parsed, err := parseV5Message(buf.Bytes())
+	parsed, err := parseV5Response(buf.Bytes())
 	require.NoError(t, err)
 	assert.Equal(t, 5, parsed.getVersion())
 	assert.Equal(t, requestMode, parsed.getMode())
@@ -394,7 +394,7 @@ func (s *mockV5Server) Read(b []byte) (n int, err error) {
 	if len(s.request) < msgSize {
 		return 0, ErrInvalidTime
 	}
-	requestMsg, _ := parseV5Message(s.request)
+	requestMsg, _ := parseV5Response(s.request)
 
 	now := time.Now()
 	serverRecv := toTimestamp(now)

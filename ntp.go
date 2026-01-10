@@ -183,6 +183,16 @@ type QueryOptions struct {
 	// epoch ID from the server. Used only in NTPv5.
 	RequestMonotonicTime bool
 
+	// RequestInterleavedMode indicates whether to use interleaved mode for
+	// the NTPv5 query. Used in conjunction with the ClientCookie field. Used
+	// only in NTPv5.
+	RequestInterleavedMode bool
+
+	// ServerCookie should contain the server cookie returned by a previous
+	// response from the NTP server when operating in interleaved mode. Used
+	// only in NTPv5.
+	ServerCookie uint64
+
 	// Dialer is a callback used to override the default UDP network dialer.
 	// The localAddress is directly copied from the LocalAddress field
 	// specified in QueryOptions. It may be the empty string or a host address
@@ -339,8 +349,9 @@ type Response struct {
 	// Flags reported by the server.
 	Flags ResponseFlags
 
-	// ServerCookie is the session cookie returned by an NTPv5 server. Used
-	// only in NTPv5.
+	// ServerCookie is the cookie returned by an NTPv5 server. In interleaved
+	// mode, this cookie should be passed to the server in the next query.
+	// Used only in NTPv5.
 	ServerCookie uint64
 
 	authErr error
