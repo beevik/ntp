@@ -25,7 +25,7 @@ import (
 
 var (
 	ErrAuthFailed              = errors.New("authentication failed")
-	ErrAuthNAK                 = errors.New("NTPv5 authentication NAK received")
+	ErrAuthNAK                 = errors.New("authentication NAK received")
 	ErrExtensionsNotSupported  = errors.New("NTPV3 does not support extension fields")
 	ErrInvalidAuthKey          = errors.New("invalid authentication key")
 	ErrInvalidDispersion       = errors.New("invalid dispersion in response")

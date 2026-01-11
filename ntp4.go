@@ -216,10 +216,18 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 }
 
 func verifyMAC(buf []byte, opt *QueryOptions, key []byte) error {
-	// Validate that there are enough bytes at the end of the message to
-	// contain a MAC.
-	macLen := 4 + getMACSize(opt.Version, opt.Auth.Type)
+	// Check for a trailing crypto-NAK (with no extension fields). Modern NTP
+	// servers no longer send crypto-NAKs, but some older ones do.
 	remain := len(buf) - msgSize
+	if opt.Version == 4 && remain == 4 {
+		if binary.BigEndian.Uint32(buf[len(buf)-4:]) == 0 {
+			return ErrAuthNAK
+		}
+	}
+
+	// Validate that there are enough bytes at the end of the message to
+	// contain a complete MAC for the hash algorithm.
+	macLen := 4 + getMACSize(opt.Version, opt.Auth.Type)
 	if remain < macLen || (remain%4) != 0 {
 		return ErrAuthFailed
 	}
