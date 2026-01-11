@@ -21,7 +21,8 @@ import (
 type Timescale uint8
 
 const (
-	// TimescaleUTC indicates Coordinated Universal Time with leap seconds.
+	// TimescaleUTC indicates Coordinated Universal Time (UTC) with leap
+	// seconds.
 	TimescaleUTC Timescale = 0
 
 	// TimescaleTAI indicates International Atomic Time.
@@ -30,8 +31,8 @@ const (
 	// TimescaleUT1 indicates Universal Time based on Earth's rotation.
 	TimescaleUT1 Timescale = 2
 
-	// TimescaleLeapSmeared indicates UTC with leap seconds smeared.
-	TimescaleLeapSmeared Timescale = 3
+	// TimescaleUTCLeapSmeared indicates UTC with smeared leap seconds.
+	TimescaleUTCLeapSmeared Timescale = 3
 )
 
 // NTPv5 mode.
@@ -378,8 +379,13 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			if len(body) != 12 {
 				return nil, ErrInvalidExtensionField
 			}
-			era := uint8(body[1])
-			r.SecondaryTime = timestamp(binary.BigEndian.Uint64(body[4:12])).Time(era)
+			era2 := uint8(body[1])
+			time2 := timestamp(binary.BigEndian.Uint64(body[4:12])).Time(era2)
+			ts := TimescaleOffset{
+				Timescale: Timescale(body[0]),
+				Offset:    time2.Sub(serverXmitTime),
+			}
+			r.TimescaleOffsets = append(r.TimescaleOffsets, ts)
 
 		case extDraftID:
 			if string(body[:len(draftID)]) != draftID {
@@ -470,8 +476,15 @@ func buildV5Request(opt *QueryOptions, clientCookie uint64) (*bytes.Buffer, erro
 		writeExtMonotonicTimestamp(buf)
 	}
 
-	if opt.SecondaryTimescale != opt.Timescale {
-		writeExtSecondaryTimestamp(buf, opt.SecondaryTimescale)
+	if opt.AdditionalTimescales != nil {
+		visited := make(map[Timescale]bool)
+		visited[opt.Timescale] = true
+		for _, ts := range opt.AdditionalTimescales {
+			if !visited[ts] {
+				visited[ts] = true
+				writeExtSecondaryTimestamp(buf, ts)
+			}
+		}
 	}
 
 	// Allow package extensions to process modify the transmit buffer.

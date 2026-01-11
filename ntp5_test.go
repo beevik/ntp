@@ -48,7 +48,6 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]  RefIDBytes: %s", host, toHexString(r.ReferenceIDFilterValues))
 	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
-	t.Logf("[%s]     2ndTime: %s", host, fmtTime(r.SecondaryTime))
 	t.Logf("[%s]    MonoTime: %s", host, fmtTime(r.MonotonicTime))
 	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
 	t.Logf("[%s]   Supported: %v", host, r.SupportedVersions)
@@ -75,7 +74,8 @@ func TestOnlineV5Query(t *testing.T) {
 			ChunkOffset: 0,
 			ChunkSize:   uint16(512),
 		},
-		SecondaryTimescale:       TimescaleTAI,
+		Timescale:                TimescaleUTC,
+		AdditionalTimescales:     []Timescale{TimescaleTAI, TimescaleUT1, TimescaleUTCLeapSmeared},
 		RequestSupportedVersions: true,
 		RequestCorrection:        true,
 		RequestReferenceTime:     true,

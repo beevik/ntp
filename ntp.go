@@ -132,16 +132,18 @@ type QueryOptions struct {
 	// is dropped by the network. Defaults to the local system's default value.
 	TTL int
 
-	// Timescale requests a specific timescale (UTC, TAI, UT1, etc.) from an
-	// NTPv5 server. Defaults to TimescaleUTC. Used only in NTPv5.
+	// Timescale is used to request timestamps from the server that are
+	// measured according to a specific timescale reference (UTC, TAI, UT1, or
+	// leap-smeared UTC). Defaults to TimescaleUTC. Used only in NTPv5.
 	Timescale Timescale
 
-	// SecondaryTimescale requests a secondary timestamp using the specified
-	// timescale. The timestamp is returned in the Response struct's
-	// SecondaryTime field. If this value is the same as the Timescale field's
-	// value, no secondary timestamp is requested. Defaults to TimescaleUTC.
-	// Used only in NTPv5.
-	SecondaryTimescale Timescale
+	// AdditionalTimescales requests additional timestamps using the specified
+	// timescales, allowing the client to determine the offsets between the
+	// primary timescale (specified in the Timescale field) and each of the
+	// additional timescales. If the server supports this feature, offsets
+	// will be reported in the response's TimescaleOffsets field. Used only in
+	// NTPv5.
+	AdditionalTimescales []Timescale
 
 	// Auth contains the options used to configure symmetric key
 	// authentication. See RFC 5905 for further details. For NTPv3 and NTPv4,
@@ -260,9 +262,13 @@ type Response struct {
 	// short period of time.
 	Stratum uint8
 
-	// Timescale indicates the time reference system used by the server. Used
-	// only in NTPv5.
+	// Timescale reports the timescale used by the server to timestamp
+	// messages it sent and received. Used only in NTPv5.
 	Timescale Timescale
+
+	// TimescaleOffsets contains the time offsets of any requested additional
+	// timescales relative to the primary timescale. Used only in NTPv5.
+	TimescaleOffsets []TimescaleOffset
 
 	// Era is the NTP era number returned by the server. Era 0 spans
 	// 1900-2036, Era 1 spans 2036-2172, etc. Used only in NTPv5.
@@ -287,11 +293,6 @@ type Response struct {
 	// it is returned only when requested via the RequestReferenceTime field
 	// in QueryOptions.
 	ReferenceTime time.Time
-
-	// SecondaryTime contains a secondary time in response to a request for a
-	// QueryOptions SecondaryTimescale that differs from the primary Timescale
-	// value. Used only in NTPv5.
-	SecondaryTime time.Time
 
 	// MonotonicTime contains a monotonic timestamp returned by an NTPv5
 	// server when requested via the QueryOptions RequestMonotonicTime field.
@@ -357,6 +358,19 @@ type Response struct {
 	ServerCookie uint64
 
 	authErr error
+}
+
+// The TimescaleOffset struct contains a timescale identifier and its
+// corresponding offset relative to the primary timescale specified in the
+// QueryOptions Timescale field. Used only in NTPv5.
+type TimescaleOffset struct {
+	// The Timescale to which this offset pertains.
+	Timescale Timescale
+
+	// The offset of the timescale relative to the request's primary
+	// timescale. This value may be added to the response's ClockOffset to
+	// obtain a time synchronized to the associated timescale.
+	Offset time.Duration
 }
 
 // The Correction struct contains delay correction information provided by
