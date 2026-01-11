@@ -140,7 +140,7 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		}
 
 		// Append a MAC field.
-		digest := calcMAC(xmitBuf.Bytes(), opt.Auth.Type, authKey)
+		digest := calcMAC(opt.Version, opt.Auth.Type, authKey, xmitBuf.Bytes())
 		binary.Write(&xmitBuf, binary.BigEndian, opt.Auth.KeyID)
 		binary.Write(&xmitBuf, binary.BigEndian, digest)
 	}
@@ -209,16 +209,16 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 	// If symmetric authentication was requested, authenticate the response.
 	if opt.Auth.Type != AuthNone {
-		response.authErr = verifyMAC(recvBuf, opt.Auth, authKey)
+		response.authErr = verifyMAC(recvBuf, opt, authKey)
 	}
 
 	return response, response.authErr
 }
 
-func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
+func verifyMAC(buf []byte, opt *QueryOptions, key []byte) error {
 	// Validate that there are enough bytes at the end of the message to
 	// contain a MAC.
-	macLen := 4 + getMACSize(opt.Type)
+	macLen := 4 + getMACSize(opt.Version, opt.Auth.Type)
 	remain := len(buf) - msgSize
 	if remain < macLen || (remain%4) != 0 {
 		return ErrAuthFailed
@@ -229,14 +229,14 @@ func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
 	payloadLen := len(buf) - macLen
 	mac := buf[payloadLen:]
 	keyID := binary.BigEndian.Uint32(mac[:4])
-	if keyID != opt.KeyID {
+	if keyID != opt.Auth.KeyID {
 		return ErrAuthFailed
 	}
 
 	// Calculate and compare digests.
 	payload := buf[:payloadLen]
 	digestRecv := mac[4:]
-	digestCalc := calcMAC(payload, opt.Type, key)
+	digestCalc := calcMAC(opt.Version, opt.Auth.Type, key, payload)
 	if subtle.ConstantTimeCompare(digestCalc, digestRecv) == 0 {
 		return ErrAuthFailed
 	}

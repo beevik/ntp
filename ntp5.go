@@ -222,7 +222,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// The MAC extension field must be appended after the transmit timestamp
 	// has been written.
 	if authKey != nil {
-		mac := calcMAC(xmitBuf.Bytes(), opt.Auth.Type, authKey)
+		mac := calcMAC(opt.Version, opt.Auth.Type, authKey, xmitBuf.Bytes())
 		writeExtMAC(xmitBuf, opt.Auth.KeyID, mac)
 	}
 
@@ -334,10 +334,10 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			// Ignore padding.
 
 		case extMAC:
-			if len(body[4:]) != getMACSize(opt.Auth.Type) {
+			if len(body[4:]) != getMACSize(opt.Version, opt.Auth.Type) {
 				return nil, ErrAuthFailed
 			}
-			mac := calcMAC(recvBuf[:offset], opt.Auth.Type, authKey)
+			mac := calcMAC(opt.Version, opt.Auth.Type, authKey, recvBuf[:offset])
 			if subtle.ConstantTimeCompare(mac, body[4:]) == 0 {
 				r.authErr = ErrAuthFailed
 			}

@@ -24,10 +24,10 @@ type AuthType int
 
 const (
 	AuthNone   AuthType = iota // no symmetric key authentication
-	AuthMD5                    // MD5 digest
-	AuthSHA1                   // SHA-1 digest
-	AuthSHA256                 // SHA-2 digest (256 bits)
-	AuthSHA512                 // SHA-2 digest (512 bits)
+	AuthMD5                    // MD5
+	AuthSHA1                   // SHA-1
+	AuthSHA256                 // SHA2-256
+	AuthSHA512                 // SHA2-512
 	AuthAES128                 // AES-128-CMAC
 	AuthAES256                 // AES-256-CMAC
 )
@@ -54,16 +54,16 @@ type AuthOptions struct {
 var algorithms = []struct {
 	MinKeySize int
 	MaxKeySize int
-	DigestSize int
-	CalcDigest func(payload, key []byte) []byte
+	MACSize    int
+	CalcMAC    func(payload, key []byte) []byte
 }{
-	{0, 0, 0, nil},                 // AuthNone
-	{4, 32, 16, calcDigest_MD5},    // AuthMD5
-	{4, 32, 20, calcDigest_SHA1},   // AuthSHA1
-	{4, 32, 20, calcDigest_SHA256}, // AuthSHA256
-	{4, 32, 20, calcDigest_SHA512}, // AuthSHA512
-	{16, 16, 16, calcCMAC_AES},     // AuthAES128
-	{32, 32, 16, calcCMAC_AES},     // AuthAES256
+	{0, 0, 0, nil},               // AuthNone
+	{4, 32, 16, calcDigest_MD5},  // AuthMD5
+	{4, 32, 20, calcHash_SHA1},   // AuthSHA1
+	{4, 32, 32, calcHash_SHA256}, // AuthSHA256
+	{4, 32, 64, calcHash_SHA512}, // AuthSHA512
+	{16, 16, 16, calcCMAC_AES},   // AuthAES128
+	{32, 32, 16, calcCMAC_AES},   // AuthAES256
 }
 
 func calcDigest_MD5(payload, key []byte) []byte {
@@ -71,19 +71,19 @@ func calcDigest_MD5(payload, key []byte) []byte {
 	return digest[:]
 }
 
-func calcDigest_SHA1(payload, key []byte) []byte {
-	digest := sha1.Sum(append(key, payload...))
-	return digest[:]
+func calcHash_SHA1(payload, key []byte) []byte {
+	hash := sha1.Sum(append(key, payload...))
+	return hash[:]
 }
 
-func calcDigest_SHA256(payload, key []byte) []byte {
-	digest := sha256.Sum256(append(key, payload...))
-	return digest[:20]
+func calcHash_SHA256(payload, key []byte) []byte {
+	hash := sha256.Sum256(append(key, payload...))
+	return hash[:]
 }
 
-func calcDigest_SHA512(payload, key []byte) []byte {
-	digest := sha512.Sum512(append(key, payload...))
-	return digest[:20]
+func calcHash_SHA512(payload, key []byte) []byte {
+	hash := sha512.Sum512(append(key, payload...))
+	return hash[:]
 }
 
 func calcCMAC_AES(payload, key []byte) []byte {
@@ -189,12 +189,18 @@ func decodeAuthKey(opt AuthOptions) (key []byte, err error) {
 	return key, nil
 }
 
-func calcMAC(payload []byte, authType AuthType, key []byte) []byte {
+func getMACSize(version int, authType AuthType) int {
 	a := algorithms[authType]
-	return a.CalcDigest(payload, key)
+	if version == 4 {
+		// Truncate to 20 bytes for NTPv4.
+		return min(a.MACSize, 20)
+	}
+	return a.MACSize
 }
 
-func getMACSize(authType AuthType) int {
+func calcMAC(version int, authType AuthType, key []byte, payload []byte) []byte {
 	a := algorithms[authType]
-	return a.DigestSize
+	mac := a.CalcMAC(payload, key)
+	size := getMACSize(version, authType)
+	return mac[:size]
 }
