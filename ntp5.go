@@ -31,8 +31,8 @@ const (
 	// TimescaleUT1 indicates Universal Time based on Earth's rotation.
 	TimescaleUT1 Timescale = 2
 
-	// TimescaleUTCLeapSmeared indicates UTC with smeared leap seconds.
-	TimescaleUTCLeapSmeared Timescale = 3
+	// TimescaleUTCSmeared indicates UTC with time-smeared leap seconds.
+	TimescaleUTCSmeared Timescale = 3
 )
 
 // NTPv5 mode.

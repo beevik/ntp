@@ -17,13 +17,15 @@ import (
 func logResponseV4(t *testing.T, r *Response) {
 	now := time.Now()
 	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
-	t.Logf("[%s]  SystemTime: %s", host, now.Format(timeFormat))
-	t.Logf("[%s]   ~TrueTime: %s", host, now.Add(r.ClockOffset).Format(timeFormat))
-	t.Logf("[%s]    XmitTime: %s", host, r.Time.Format(timeFormat))
+	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
+	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
+	t.Logf("[%s]    XmitTime: %s", host, fmtTime(r.Time))
 	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
+	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
+	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
 	t.Logf("[%s]       RefID: %s (0x%08x)", host, r.ReferenceString(), r.ReferenceID)
-	t.Logf("[%s]     RefTime: %s", host, r.ReferenceTime.Format(timeFormat))
+	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
 	t.Logf("[%s]         RTT: %s", host, r.RTT)
 	t.Logf("[%s]        Poll: %s", host, r.Poll)
 	t.Logf("[%s]   Precision: %s", host, r.Precision)
@@ -31,9 +33,7 @@ func logResponseV4(t *testing.T, r *Response) {
 	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
 	t.Logf("[%s]    RootDist: %s", host, r.RootDistance)
 	t.Logf("[%s]    MinError: %s", host, r.MinError)
-	t.Logf("[%s]        Leap: %d", host, r.Leap)
-	t.Logf("[%s]       Flags: 0x%08x", host, r.Flags)
-	t.Logf("[%s]    KissCode: %s", host, stringOrEmpty(r.KissCode))
+	t.Logf("[%s]    KissCode: %s", host, fmtKissCode(r.KissCode))
 }
 
 func TestOnlineBadServerPort(t *testing.T) {

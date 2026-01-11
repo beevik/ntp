@@ -398,13 +398,13 @@ type ResponseFlags uint32
 
 const (
 	// FlagSynchronized indicates whether the server is currently synchronized
-	// to a reference clock. Only reported by NTPv5 servers. For NTPv3 and
-	// NTPv4 servers, this flag is always set.
+	// to a reference clock. For NTPv3 and NTPv4, this flag is set when the
+	// returned stratum is valid. For NTPv5, it is set only when the server
+	// explicitly indicates synchronization.
 	FlagSynchronized ResponseFlags = 1 << iota
 
-	// FlagInterleaved indicates whether the response is interleaved mode.
-	// Only reported by NTPv5 servers. For NTPv3 and NTPv4 servers, the
-	// response never has this flag set.
+	// FlagInterleaved indicates whether the server reported its response in
+	// interleaved mode. Only used in NTPv5.
 	FlagInterleaved
 )
 

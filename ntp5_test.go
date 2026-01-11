@@ -10,33 +10,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func toHexString(filter []byte) string {
-	if filter == nil {
-		return "<nil>"
-	}
-	return "0x" + hex.EncodeToString(filter)
-}
-
-func fmtTime(value time.Time) string {
-	if value.IsZero() {
-		return "<zero>"
-	}
-	return value.Format(timeFormat)
-}
-
-func fmtEpoch(epoch uint32) string {
-	if epoch == 0 {
-		return "<zero>"
-	}
-	return fmt.Sprintf("0x%08x", epoch)
-}
 
 func logResponseV5(t *testing.T, r *Response) {
 	now := time.Now()
@@ -46,7 +26,12 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]    XmitTime: %s", host, fmtTime(r.Time))
 	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
-	t.Logf("[%s]  RefIDBytes: %s", host, toHexString(r.ReferenceIDFilterValues))
+	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
+	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
+	t.Logf("[%s]         Era: %d", host, r.Era)
+	t.Logf("[%s]   Timescale: %s", host, fmtTimescale(r.Timescale))
+	t.Logf("[%s]     Offsets: %s", host, fmtTimescaleOffsets(r.TimescaleOffsets))
+	t.Logf("[%s]  RefIDBytes: %s", host, fmtHexString(r.ReferenceIDFilterValues))
 	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
 	t.Logf("[%s]    MonoTime: %s", host, fmtTime(r.MonotonicTime))
 	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
@@ -58,8 +43,65 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
 	t.Logf("[%s]    RootDist: %s", host, r.RootDistance)
 	t.Logf("[%s]    MinError: %s", host, r.MinError)
-	t.Logf("[%s]       Flags: 0x%08x", host, r.Flags)
-	t.Logf("[%s]        Leap: %d", host, r.Leap)
+	t.Logf("[%s]   SrvCookie: %s", host, fmtCookie(r.ServerCookie))
+}
+
+func fmtHexString(filter []byte) string {
+	if filter == nil {
+		return "<nil>"
+	}
+	return "0x" + hex.EncodeToString(filter)
+}
+
+func fmtEpoch(epoch uint32) string {
+	if epoch == 0 {
+		return "<zero>"
+	}
+	return fmt.Sprintf("0x%08x", epoch)
+}
+
+func fmtTimescale(ts Timescale) string {
+	switch ts {
+	case TimescaleUTC:
+		return "UTC"
+	case TimescaleTAI:
+		return "TAI"
+	case TimescaleUT1:
+		return "UT1"
+	case TimescaleUTCSmeared:
+		return "UTC(smeared)"
+	default:
+		return "Unknown"
+	}
+}
+
+func fmtTimescaleOffset(o TimescaleOffset) string {
+	return fmt.Sprintf("%s=%v", fmtTimescale(o.Timescale), o.Offset)
+}
+
+func fmtTimescaleOffsets(offsets []TimescaleOffset) string {
+	if offsets == nil {
+		return "<none>"
+	}
+
+	var s strings.Builder
+	s.WriteString("[")
+	for i, o := range offsets {
+		if i > 0 {
+			s.WriteString(", ")
+		}
+		s.WriteString(fmtTimescaleOffset(o))
+	}
+	s.WriteString("]")
+
+	return s.String()
+}
+
+func fmtCookie(c uint64) string {
+	if c == 0 {
+		return "<zero>"
+	}
+	return fmt.Sprintf("0x%016x", c)
 }
 
 func TestOnlineV5Query(t *testing.T) {
@@ -75,11 +117,12 @@ func TestOnlineV5Query(t *testing.T) {
 			ChunkSize:   uint16(512),
 		},
 		Timescale:                TimescaleUTC,
-		AdditionalTimescales:     []Timescale{TimescaleTAI, TimescaleUT1, TimescaleUTCLeapSmeared},
+		AdditionalTimescales:     []Timescale{TimescaleTAI, TimescaleUT1, TimescaleUTCSmeared},
 		RequestSupportedVersions: true,
 		RequestCorrection:        true,
 		RequestReferenceTime:     true,
 		RequestMonotonicTime:     true,
+		RequestInterleavedMode:   true,
 	}
 
 	// Force an immediate timeout.

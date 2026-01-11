@@ -5,9 +5,11 @@
 package ntp
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -28,11 +30,56 @@ func init() {
 	}
 }
 
-func stringOrEmpty(s string) string {
+func fmtKissCode(s string) string {
 	if s == "" {
 		return "<empty>"
 	}
 	return s
+}
+
+func fmtLeapIndicator(li LeapIndicator) string {
+	switch li {
+	case LeapNoWarning:
+		return "No Warning"
+	case LeapAddSecond:
+		return "Add Second"
+	case LeapDelSecond:
+		return "Delete Second"
+	default:
+		return "Unknown"
+	}
+}
+
+func fmtResponseFlags(flags ResponseFlags) string {
+	ftab := map[ResponseFlags]string{
+		FlagSynchronized: "Synchronized",
+		FlagInterleaved:  "Interleaved",
+	}
+
+	copy := flags
+	var s strings.Builder
+	s.WriteString("[")
+	for flags != 0 {
+		f := flags & -flags
+		if s.Len() > 1 {
+			s.WriteString(" ")
+		}
+		if ss, ok := ftab[f]; ok {
+			s.WriteString(ss)
+		} else {
+			s.WriteString("Unknown")
+		}
+		flags &= ^f
+	}
+	fmt.Fprintf(&s, "] (0x%08x)", uint32(copy))
+	return s.String()
+}
+
+func fmtTime(value time.Time) string {
+	if value.IsZero() {
+		return "<zero>"
+	}
+	return value.Format(timeFormat)
 }
 
 func isError(t *testing.T, host string, err error) bool {
