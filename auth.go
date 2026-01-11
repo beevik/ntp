@@ -17,9 +17,10 @@ import (
 
 // AuthType specifies the cryptographic hash algorithm used to generate a
 // symmetric key authentication code for an NTP message. Please note that MD5
-// and SHA1 are no longer considered secure; they appear here solely for
-// compatibility with existing NTP server implementations. When used with
-// NTPv5, the AES-128-CMAC algorithm should be used.
+// and SHA1 are no longer considered secure and have been deprecated for use
+// with NTP; they appear here solely for compatibility with older NTP server
+// implementations. In general, the AES-128-CMAC algorithm should be used if
+// the server supports it (see RFC 8573).
 type AuthType int
 
 const (
