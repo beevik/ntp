@@ -210,12 +210,20 @@ func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
 		return nil
 	}
 
-	// Validate that there are enough bytes at the end of the message to
-	// contain a MAC.
+	// Check for a trailing crypto-NAK (with no extension fields). Modern NTP
+	// servers no longer send crypto-NAKs, but some older ones do.
 	const headerSize = 48
+	remain := len(buf) - headerSize
+	if remain == 4 {
+		if binary.BigEndian.Uint32(buf[len(buf)-4:]) == 0 {
+			return ErrAuthNAK
+		}
+	}
+
+	// Validate that there are enough bytes at the end of the message to
+	// contain a complete MAC for the hash algorithm.
 	a := algorithms[opt.Type]
 	macLen := 4 + a.DigestSize
-	remain := len(buf) - headerSize
 	if remain < macLen || (remain%4) != 0 {
 		return ErrAuthFailed
 	}

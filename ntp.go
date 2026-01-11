@@ -26,6 +26,7 @@ import (
 
 var (
 	ErrAuthFailed             = errors.New("authentication failed")
+	ErrAuthNAK                = errors.New("authentication NAK received")
 	ErrInvalidAuthKey         = errors.New("invalid authentication key")
 	ErrInvalidDispersion      = errors.New("invalid dispersion in response")
 	ErrInvalidLeapSecond      = errors.New("invalid leap second in response")
