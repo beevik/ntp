@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// EXPERIMENTAL: NTPv5 support is based on draft-ietf-ntp-ntpv5 and is subject
-// to change as the specification evolves. Do not use in production
-// environments.
+// EXPERIMENTAL: This file implements NTP versions 3 and 4 (NTPv3 and NTPv4)
+// protocol support. It is based on draft-ietf-ntp-ntpv5 and is subject to
+// change as the specification evolves. Do not use in production environments.
 
 package ntp
 
@@ -197,9 +197,12 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 	// Decode the authentication key if symmetric key authentication has been
 	// requested.
-	authKey, err := decodeAuthKey(opt.Auth)
-	if err != nil {
-		return nil, err
+	var authKey []byte
+	if opt.Auth.Type != AuthNone {
+		authKey, err = decodeAuthKey(opt.Auth)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Allocate a buffer big enough to hold an entire response datagram.

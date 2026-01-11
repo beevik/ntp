@@ -156,10 +156,6 @@ func xor(dst, src []byte) {
 }
 
 func decodeAuthKey(opt AuthOptions) (key []byte, err error) {
-	if opt.Type == AuthNone {
-		return nil, nil
-	}
-
 	var keyIn string
 	var isHex bool
 	switch {

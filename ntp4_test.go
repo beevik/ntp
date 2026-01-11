@@ -243,7 +243,7 @@ func TestOfflineV4MinError(t *testing.T) {
 		ReceiveTime:   toTimestamp(start.Add(2 * time.Second)),
 		TransmitTime:  toTimestamp(start.Add(3 * time.Second)),
 	}
-	r := generateResponse(m, toTimestamp(start.Add(4*time.Second)), nil)
+	r := generateV4Response(m, toTimestamp(start.Add(4*time.Second)))
 	assertValid(t, r)
 	assert.Equal(t, r.MinError, time.Duration(0))
 
@@ -254,7 +254,7 @@ func TestOfflineV4MinError(t *testing.T) {
 					m.OriginTime = toTimestamp(start.Add(org))
 					m.ReceiveTime = toTimestamp(start.Add(rec))
 					m.TransmitTime = toTimestamp(start.Add(xmt))
-					r = generateResponse(m, toTimestamp(start.Add(dst)), nil)
+					r = generateV4Response(m, toTimestamp(start.Add(dst)))
 					assertValid(t, r)
 					var error0, error1 time.Duration
 					if org >= rec {
@@ -444,24 +444,24 @@ func TestOfflineV4Validate(t *testing.T) {
 	m.OriginTime = 1 << 32
 	m.ReceiveTime = 1 << 32
 	m.TransmitTime = 1 << 32
-	r = generateResponse(&m, 1<<32, nil)
+	r = generateV4Response(&m, 1<<32)
 	assertValid(t, r)
 
 	// Negative freshness
 	m.ReferenceTime = 2 << 32
-	r = generateResponse(&m, 1<<32, nil)
+	r = generateV4Response(&m, 1<<32)
 	assertInvalid(t, r)
 
 	// Unfresh clock (48h)
 	m.OriginTime = 2 * 86400 << 32
 	m.ReceiveTime = 2 * 86400 << 32
 	m.TransmitTime = 2 * 86400 << 32
-	r = generateResponse(&m, 2*86400<<32, nil)
+	r = generateV4Response(&m, 2*86400<<32)
 	assertInvalid(t, r)
 
 	// Fresh clock (24h)
 	m.ReferenceTime = 1 * 86400 << 32
-	r = generateResponse(&m, 2*86400<<32, nil)
+	r = generateV4Response(&m, 2*86400<<32)
 	assertValid(t, r)
 
 	// Values indicating a negative RTT
@@ -470,7 +470,7 @@ func TestOfflineV4Validate(t *testing.T) {
 	m.OriginTime = 20 << 32
 	m.ReceiveTime = 10 << 32
 	m.TransmitTime = 15 << 32
-	r = generateResponse(&m, 22<<32, nil)
+	r = generateV4Response(&m, 22<<32)
 	assert.NotNil(t, r)
 	assertValid(t, r)
 	assert.Equal(t, r.RTT, 0*time.Second)

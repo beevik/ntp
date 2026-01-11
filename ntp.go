@@ -26,6 +26,7 @@ import (
 var (
 	ErrAuthFailed              = errors.New("authentication failed")
 	ErrAuthNAK                 = errors.New("NTPv5 authentication NAK received")
+	ErrExtensionsNotSupported  = errors.New("NTPV3 does not support extension fields")
 	ErrInvalidAuthKey          = errors.New("invalid authentication key")
 	ErrInvalidDispersion       = errors.New("invalid dispersion in response")
 	ErrInvalidDraftID          = errors.New("invalid draft ID value in response")
@@ -73,20 +74,21 @@ type LeapIndicator uint8
 
 const (
 	// LeapNoWarning indicates that no leap second will be inserted in the
-	// next 14 days (or the server is responding to an NTPv5 leap-smeared
-	// timescale request).
+	// near future (within the next 14 days for NTPv5). It is also used when
+	// responding to an NTPv5 leap-smeared timescale request.
 	LeapNoWarning LeapIndicator = 0 + iota
 
-	// LeapAddSecond indicates a leap second will be inserted in the next
-	// 14 days at the end of the current month.
+	// LeapAddSecond indicates that, in the near future (within 14 days for
+	// NTPv5), a leap second will be inserted at the end of the current month.
 	LeapAddSecond
 
-	// LeapDelSecond indicates a leap second will be deleted in the next
-	// 14 days at the end of the current month.
+	// LeapDelSecond indicates that, in the near future (within 14 days for
+	// NTPv5), a leap second will be deleted at the end of the current month.
 	LeapDelSecond
 
-	// LeapNotInSync indicates an unknown leap indicator value (typically due
-	// to an unsynchronized server clock).
+	// LeapNotInSync indicates that the server has no time source or other
+	// source providing information about leap seconds (often due to an
+	// unsynchronized server clock).
 	LeapNotInSync
 )
 
@@ -131,25 +133,26 @@ type QueryOptions struct {
 	TTL int
 
 	// Timescale requests a specific timescale (UTC, TAI, UT1, etc.) from an
-	// NTPv5 server. Used only in NTPv5. Defaults to TimescaleUTC.
+	// NTPv5 server. Defaults to TimescaleUTC. Used only in NTPv5.
 	Timescale Timescale
 
 	// SecondaryTimescale requests a secondary timestamp using the specified
 	// timescale. The timestamp is returned in the Response struct's
-	// SecondaryTime field. If this value is the same as Timescale, no
-	// secondary timestamp is returned. Used only in NTPv5. Defaults to
-	// TimescaleUTC.
+	// SecondaryTime field. If this value is the same as the Timescale field's
+	// value, no secondary timestamp is requested. Defaults to TimescaleUTC.
+	// Used only in NTPv5.
 	SecondaryTimescale Timescale
 
-	// Auth contains the settings used to configure NTP symmetric key
+	// Auth contains the options used to configure symmetric key
 	// authentication. See RFC 5905 for further details. For NTPv3 and NTPv4,
-	// this results in a MAC or digest appended to the end of the NTP message.
-	// For NTPv5, this results in a message authentication extension field
-	// being added to the NTP message.
+	// this results in a MAC or digest being appended to the end of the NTP
+	// message. For NTPv5, this results in a message authentication extension
+	// field being added to the NTP message. Defaults to no symmetric key
+	// authentication.
 	Auth AuthOptions
 
-	// Extensions may be added to (1) modify NTP queries before they are
-	// transmitted and (2) process NTP responses after they arrive. When
+	// Extensions may be added in order to (a) modify NTP queries before they
+	// are transmitted and (b) process NTP responses after they arrive. When
 	// building an NTP request, extensions are processed in the order listed.
 	// When processing a server response, extensions are processed in reverse
 	// order.
@@ -184,21 +187,20 @@ type QueryOptions struct {
 	RequestMonotonicTime bool
 
 	// RequestInterleavedMode indicates whether to use interleaved mode for
-	// the NTPv5 query. Used in conjunction with the ClientCookie field. Used
+	// the NTPv5 query. Used in conjunction with the ServerCookie field. Used
 	// only in NTPv5.
 	RequestInterleavedMode bool
 
-	// ServerCookie should contain the server cookie returned by a previous
-	// response from the NTP server when operating in interleaved mode. Used
-	// only in NTPv5.
+	// ServerCookie contains the server cookie returned by a prior server
+	// response when operating in interleaved mode. Used only in NTPv5.
 	ServerCookie uint64
 
 	// Dialer is a callback used to override the default UDP network dialer.
 	// The localAddress is directly copied from the LocalAddress field
 	// specified in QueryOptions. It may be the empty string or a host address
 	// (without port number). The remoteAddress is the "host:port" string
-	// derived from the first parameter to QueryWithOptions.  The
-	// remoteAddress is guaranteed to include a port number.
+	// derived from the first parameter to QueryWithOptions. The remoteAddress
+	// is guaranteed to include a port number.
 	Dialer func(localAddress, remoteAddress string) (net.Conn, error)
 
 	// Dial is a callback used to override the default UDP network dialer.
@@ -511,7 +513,7 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 	if opt.Version == 0 {
 		opt.Version = defaultVersion
 	}
-	if opt.Version < 2 || opt.Version > 5 {
+	if opt.Version < 3 || opt.Version > 5 {
 		return nil, ErrInvalidProtocolVersion
 	}
 
@@ -560,7 +562,8 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 	// Set a timeout on the connection.
 	conn.SetDeadline(time.Now().Add(opt.Timeout))
 
-	// Perform the version-specific query.
+	// Perform the version-specific query. NTPv3 and NTPv4 share nearly
+	// the same client implementation, so use queryV4 for both.
 	if opt.Version == 5 {
 		return queryV5(conn, &opt)
 	} else {

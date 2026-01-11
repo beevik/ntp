@@ -1,6 +1,10 @@
 // Copyright © Brett Vickers.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+//
+// This file implements NTP versions 3 and 4 (NTPv3 and NTPv4) protocol
+// support.
+
 package ntp
 
 import (
@@ -85,8 +89,8 @@ func (m *messageV4) getLeap() LeapIndicator {
 	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
 }
 
-// queryV4 performs the NTP server query and returns the response message
-// along with the local system time it was received.
+// queryV4 performs the NTPv3 or NTPv4 server query and returns the response
+// message along with the local system time it was received.
 func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Allocate a buffer big enough to hold an entire response datagram.
 	recvBuf := make([]byte, 8192)
@@ -102,12 +106,12 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// To help prevent spoofing and client fingerprinting, use a
 	// cryptographically random 64-bit value for the TransmitTime. See:
 	// https://www.ietf.org/archive/id/draft-ietf-ntp-data-minimization-04.txt
-	bits := make([]byte, 8)
-	_, err := rand.Read(bits)
+	var randBits [8]byte
+	_, err := rand.Read(randBits[:])
 	if err != nil {
 		return nil, err
 	}
-	xmitMsg.TransmitTime = timestamp(binary.BigEndian.Uint64(bits))
+	xmitMsg.TransmitTime = timestamp(binary.BigEndian.Uint64(randBits[:]))
 
 	// Write the query message to a transmit buffer.
 	var xmitBuf bytes.Buffer
@@ -121,15 +125,21 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		}
 	}
 
-	// If using symmetric key authentication, decode and validate the auth key
-	// string.
-	authKey, err := decodeAuthKey(opt.Auth)
-	if err != nil {
-		return nil, err
+	// NTPv3 does not support extension fields.
+	if opt.Version == 3 && xmitBuf.Len() > msgSize {
+		return nil, ErrExtensionsNotSupported
 	}
 
-	// Append a MAC if symmetric authentication is being used.
+	// Was symmetric key authentication requested?
+	var authKey []byte
 	if opt.Auth.Type != AuthNone {
+		// Decode and validate the auth key string.
+		authKey, err = decodeAuthKey(opt.Auth)
+		if err != nil {
+			return nil, err
+		}
+
+		// Append a MAC field.
 		digest := calcMAC(xmitBuf.Bytes(), opt.Auth.Type, authKey)
 		binary.Write(&xmitBuf, binary.BigEndian, opt.Auth.KeyID)
 		binary.Write(&xmitBuf, binary.BigEndian, digest)
@@ -186,18 +196,23 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, ErrServerTickedBackwards
 	}
 
-	// Correct the received message's origin time using the actual
-	// transmit time.
-	recvMsg.OriginTime = toTimestamp(xmitTime)
+	// Convert transmit and receive times to timestamps.
+	xmitTimestamp := toTimestamp(xmitTime)
+	recvTimestamp := toTimestamp(recvTime)
 
-	// Perform symmetric authentication of the response.
-	var authErr error
+	// Correct the received message's origin time using the actual transmit
+	// time.
+	recvMsg.OriginTime = xmitTimestamp
+
+	// Compose the response struct.
+	response := generateV4Response(recvMsg, recvTimestamp)
+
+	// If symmetric authentication was requested, authenticate the response.
 	if opt.Auth.Type != AuthNone {
-		authErr = verifyMAC(recvBuf, opt.Auth, authKey)
+		response.authErr = verifyMAC(recvBuf, opt.Auth, authKey)
 	}
 
-	response := generateResponse(recvMsg, toTimestamp(recvTime), authErr)
-	return response, authErr
+	return response, response.authErr
 }
 
 func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
@@ -229,9 +244,9 @@ func verifyMAC(buf []byte, opt AuthOptions, key []byte) error {
 	return nil
 }
 
-// generateResponse processes NTP message fields along with the the receive
+// generateV4Response processes NTP message fields along with the the receive
 // time to generate a Response record.
-func generateResponse(m *messageV4, recvTime timestamp, authErr error) *Response {
+func generateV4Response(m *messageV4, recvTime timestamp) *Response {
 	r := &Response{
 		Time:                    m.TransmitTime.TimeV4(),
 		ClockOffset:             offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
@@ -248,7 +263,6 @@ func generateResponse(m *messageV4, recvTime timestamp, authErr error) *Response
 		MinError:                minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
 		Poll:                    toInterval(m.Poll),
 		Flags:                   0,
-		authErr:                 authErr,
 	}
 
 	// Calculate values depending on other calculated values
