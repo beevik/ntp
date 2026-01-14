@@ -184,9 +184,12 @@ type QueryOptions struct {
 	// include a reference timestamp in its response. Used only in NTPv5.
 	RequestReferenceTime bool
 
-	// RequestMonotonicTime indicates whether to request a monotonic time and
-	// epoch ID from the server. Used only in NTPv5.
-	RequestMonotonicTime bool
+	// RequestMonotonic indicates whether to request a second receive
+	// timestamp from the server using an independent monotonic clock without
+	// phase correction. This second timestamp is intended to be used by the
+	// client to reduce clock drift by adjusting the frequency of its local
+	// system clock. Used only in NTPv5.
+	RequestMonotonic bool
 
 	// RequestInterleavedMode indicates whether to use interleaved mode for
 	// the NTPv5 query. Used in conjunction with the ServerCookie field. Used
@@ -294,13 +297,20 @@ type Response struct {
 	// in QueryOptions.
 	ReferenceTime time.Time
 
-	// MonotonicTime contains a monotonic timestamp returned by an NTPv5
-	// server when requested via the QueryOptions RequestMonotonicTime field.
-	// Used only in NTPv5.
-	MonotonicTime time.Time
+	// MonotonicOffset contains the offset of the server's monotonic clock
+	// relative to its primary clock. It is calculated by taking the
+	// difference between the monotonic receive timestamp and the primary
+	// receive timestamp contained in the response packet. Returned only when
+	// requested via the RequestMonotonic field in QueryOptions. Used only in
+	// NTPv5.
+	MonotonicOffset time.Duration
 
-	// MonotonicEpochID is the epoch ID associated with the MonotonicTime
-	// value. Used only in NTPv5.
+	// MonotonicEpochID is the an identifier associated with the
+	// MonotonicOffset value. Whenever this value changes, the server's
+	// monotonic clock has been phase-corrected, and any frequency adjustment
+	// algorithms running on the client must be reset. Returned only when
+	// requested via the RequestMonotonic field in QueryOptions. Used only in
+	// NTPv5.
 	MonotonicEpochID uint32
 
 	// Correction contains delay correction information provided by network

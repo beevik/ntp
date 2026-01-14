@@ -373,19 +373,21 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 				return nil, ErrInvalidExtensionField
 			}
 			r.MonotonicEpochID = binary.BigEndian.Uint32(body[0:4])
-			r.MonotonicTime = timestamp(binary.BigEndian.Uint64(body[4:12])).Time(m.Era)
+			monotonicRecvTime := timestamp(binary.BigEndian.Uint64(body[4:12])).Time(m.Era)
+			r.MonotonicOffset = monotonicRecvTime.Sub(serverRecvTime)
 
 		case extSecondaryTimestamp:
 			if len(body) != 12 {
 				return nil, ErrInvalidExtensionField
 			}
+			ts2 := Timescale(body[0])
 			era2 := uint8(body[1])
 			time2 := timestamp(binary.BigEndian.Uint64(body[4:12])).Time(era2)
-			ts := TimescaleOffset{
-				Timescale: Timescale(body[0]),
-				Offset:    time2.Sub(serverXmitTime),
+			offset := TimescaleOffset{
+				Timescale: ts2,
+				Offset:    time2.Sub(serverRecvTime),
 			}
-			r.TimescaleOffsets = append(r.TimescaleOffsets, ts)
+			r.TimescaleOffsets = append(r.TimescaleOffsets, offset)
 
 		case extDraftID:
 			if string(body[:len(draftID)]) != draftID {
@@ -472,7 +474,7 @@ func buildV5Request(opt *QueryOptions, clientCookie uint64) (*bytes.Buffer, erro
 		writeRefTimestamp(buf)
 	}
 
-	if opt.RequestMonotonicTime {
+	if opt.RequestMonotonic {
 		writeExtMonotonicTimestamp(buf)
 	}
 

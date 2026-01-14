@@ -31,9 +31,9 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]         Era: %d", host, r.Era)
 	t.Logf("[%s]   Timescale: %s", host, fmtTimescale(r.Timescale))
 	t.Logf("[%s]     Offsets: %s", host, fmtTimescaleOffsets(r.TimescaleOffsets))
-	t.Logf("[%s]  RefIDBytes: %s", host, fmtHexString(r.ReferenceIDFilterValues))
+	t.Logf("[%s]  RefIDBytes: %s", host, fmtRefIDFilter(r.ReferenceIDFilterValues))
 	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
-	t.Logf("[%s]    MonoTime: %s", host, fmtTime(r.MonotonicTime))
+	t.Logf("[%s]  MonoOffset: %s", host, r.MonotonicOffset)
 	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
 	t.Logf("[%s]   Supported: %v", host, r.SupportedVersions)
 	t.Logf("[%s]         RTT: %s", host, r.RTT)
@@ -46,11 +46,12 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]   SrvCookie: %s", host, fmtCookie(r.ServerCookie))
 }
 
-func fmtHexString(filter []byte) string {
+func fmtRefIDFilter(filter []byte) string {
 	if filter == nil {
 		return "<nil>"
 	}
-	return "0x" + hex.EncodeToString(filter)
+	l := min(len(filter), 24)
+	return "0x" + hex.EncodeToString(filter[:l]) + "..."
 }
 
 func fmtEpoch(epoch uint32) string {
@@ -121,7 +122,7 @@ func TestOnlineV5Query(t *testing.T) {
 		RequestSupportedVersions: true,
 		RequestCorrection:        true,
 		RequestReferenceTime:     true,
-		RequestMonotonicTime:     true,
+		RequestMonotonic:         true,
 		RequestInterleavedMode:   true,
 	}
 
