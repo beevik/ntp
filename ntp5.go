@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
+	"math"
 	"net"
 	"time"
 )
@@ -61,6 +62,10 @@ const (
 const (
 	// The currently supported draft version.
 	draftID = "draft-ietf-ntp-ntpv5-07"
+
+	// Maximum assumed frequency error for devices measuring delay corrections
+	// (100ppm)
+	maxFrequencyError = 1e-4
 )
 
 // timeShortV5 is a 32-bit fixed-point (Q4.28) representation of the number
@@ -101,6 +106,16 @@ type timeCorrectionV5 uint64
 
 // Duration converts a timeCorrectionV5 value to a Duration value.
 func (t timeCorrectionV5) Duration() time.Duration {
+	// Handle the "unrepresentable" value by returning a sentinel value.
+	if t == math.MaxUint64 {
+		return DelayUnrepresentable
+	}
+
+	// Handle negative values.
+	if t&(1<<63) != 0 {
+		return -timeCorrectionV5(^t + 1).Duration()
+	}
+
 	t0 := uint64(t>>16) * nanoPerSec
 	f1 := uint64(t&mask16) * nanoPerSec
 	t1 := f1 >> 16
@@ -297,15 +312,35 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		r.Flags |= FlagInterleaved
 	}
 
-	// Calculate the clock offset and round trip time.
-	// offset = ((t2 - t1) + (t3 - t4)) / 2
-	// rtt = (t4 - t1) - (t3 - t2)
+	// Assign brief timestamp and correction variables for readability (will
+	// be optimized away).
 	t1 := clientXmitTime
 	t2 := serverRecvTime
 	t3 := serverXmitTime
 	t4 := clientRecvTime
+	c0 := r.Correction.OriginDelay
+	c1 := r.Correction.ReturnDelay
+
+	// Handle unrepresentable or negative delay corrections by ignoring them.
+	validCorrection := true
+	if c0 == DelayUnrepresentable || c1 == DelayUnrepresentable || c0 < 0 || c1 < 0 {
+		validCorrection = false
+	}
+
+	// Calculate the uncorrected clock offset.
 	r.ClockOffset = (t2.Sub(t1) + t3.Sub(t4)) / 2
+
+	// Calculate the uncorrected round-trip time.
 	r.RTT = max(t4.Sub(t1)-t3.Sub(t2), 0)
+
+	// If valid correction values are present, adjust the offset and RTT.
+	if validCorrection {
+		rtt := r.RTT - time.Duration(float64(c0+c1)*(1.0-maxFrequencyError))
+		if rtt >= 0 {
+			r.RTT = rtt
+			r.ClockOffset += (c1 - c0) / 2
+		}
+	}
 
 	// Calculate root dispersion and distance.
 	r.RootDelay = m.RootDelay.Duration()
@@ -354,13 +389,16 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			}
 
 		case extCorrection:
+			if !opt.RequestCorrection {
+				return nil, ErrUnexpectedCorrectionField
+			}
 			if len(body) != 24 {
 				return nil, ErrInvalidExtensionField
 			}
-			r.Correction.Origin = timeCorrectionV5(binary.BigEndian.Uint64(body[0:8])).Duration()
+			r.Correction.OriginDelay = timeCorrectionV5(binary.BigEndian.Uint64(body[0:8])).Duration()
 			r.Correction.OriginPathID = binary.BigEndian.Uint16(body[8:10])
-			r.Correction.Delay = timeCorrectionV5(binary.BigEndian.Uint64(body[12:20])).Duration()
-			r.Correction.DelayPathID = binary.BigEndian.Uint16(body[20:22])
+			r.Correction.ReturnDelay = timeCorrectionV5(binary.BigEndian.Uint64(body[12:20])).Duration()
+			r.Correction.ReturnPathID = binary.BigEndian.Uint16(body[20:22])
 
 		case extRefTimestamp:
 			if len(body) != 8 {
@@ -372,22 +410,20 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			if len(body) != 12 {
 				return nil, ErrInvalidExtensionField
 			}
-			r.MonotonicEpochID = binary.BigEndian.Uint32(body[0:4])
 			monotonicRecvTime := timestamp(binary.BigEndian.Uint64(body[4:12])).Time(m.Era)
 			r.MonotonicOffset = monotonicRecvTime.Sub(serverRecvTime)
+			r.MonotonicEpochID = binary.BigEndian.Uint32(body[0:4])
 
 		case extSecondaryTimestamp:
 			if len(body) != 12 {
 				return nil, ErrInvalidExtensionField
 			}
-			ts2 := Timescale(body[0])
 			era2 := uint8(body[1])
 			time2 := timestamp(binary.BigEndian.Uint64(body[4:12])).Time(era2)
-			offset := TimescaleOffset{
-				Timescale: ts2,
+			r.TimescaleOffsets = append(r.TimescaleOffsets, TimescaleOffset{
+				Timescale: Timescale(body[0]),
 				Offset:    time2.Sub(serverRecvTime),
-			}
-			r.TimescaleOffsets = append(r.TimescaleOffsets, offset)
+			})
 
 		case extDraftID:
 			if string(body[:len(draftID)]) != draftID {

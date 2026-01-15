@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -24,25 +25,26 @@ import (
 )
 
 var (
-	ErrAuthFailed              = errors.New("authentication failed")
-	ErrAuthNAK                 = errors.New("authentication NAK received")
-	ErrExtensionsNotSupported  = errors.New("NTPV3 does not support extension fields")
-	ErrInvalidAuthKey          = errors.New("invalid authentication key")
-	ErrInvalidDispersion       = errors.New("invalid dispersion in response")
-	ErrInvalidDraftID          = errors.New("invalid draft ID value in response")
-	ErrInvalidExtensionField   = errors.New("invalid extension field in response")
-	ErrInvalidLeapSecond       = errors.New("invalid leap second in response")
-	ErrInvalidMode             = errors.New("invalid mode in response")
-	ErrInvalidProtocolVersion  = errors.New("invalid protocol version requested")
-	ErrInvalidReferenceRequest = errors.New("invalid reference ID request")
-	ErrInvalidStratum          = errors.New("invalid stratum in response")
-	ErrInvalidTime             = errors.New("invalid time reported")
-	ErrInvalidTransmitTime     = errors.New("invalid transmit time in response")
-	ErrKissOfDeath             = errors.New("kiss of death received")
-	ErrServerClockFreshness    = errors.New("server clock not fresh")
-	ErrServerNotSynchronized   = errors.New("NTPv5 server not synchronized")
-	ErrServerResponseMismatch  = errors.New("server response didn't match request")
-	ErrServerTickedBackwards   = errors.New("server clock ticked backwards")
+	ErrAuthFailed                = errors.New("authentication failed")
+	ErrAuthNAK                   = errors.New("authentication NAK received")
+	ErrExtensionsNotSupported    = errors.New("NTPV3 does not support extension fields")
+	ErrInvalidAuthKey            = errors.New("invalid authentication key")
+	ErrInvalidDispersion         = errors.New("invalid dispersion in response")
+	ErrInvalidDraftID            = errors.New("invalid draft ID value in response")
+	ErrInvalidExtensionField     = errors.New("invalid extension field in response")
+	ErrInvalidLeapSecond         = errors.New("invalid leap second in response")
+	ErrInvalidMode               = errors.New("invalid mode in response")
+	ErrInvalidProtocolVersion    = errors.New("invalid protocol version requested")
+	ErrInvalidReferenceRequest   = errors.New("invalid reference ID request")
+	ErrInvalidStratum            = errors.New("invalid stratum in response")
+	ErrInvalidTime               = errors.New("invalid time reported")
+	ErrInvalidTransmitTime       = errors.New("invalid transmit time in response")
+	ErrKissOfDeath               = errors.New("kiss of death received")
+	ErrServerClockFreshness      = errors.New("server clock not fresh")
+	ErrServerNotSynchronized     = errors.New("NTPv5 server not synchronized")
+	ErrServerResponseMismatch    = errors.New("server response didn't match request")
+	ErrServerTickedBackwards     = errors.New("server clock ticked backwards")
+	ErrUnexpectedCorrectionField = errors.New("unexpected correction extension field in response")
 )
 
 // Internal constants
@@ -177,7 +179,8 @@ type QueryOptions struct {
 
 	// RequestCorrection indicates whether to request delay corrections from
 	// network switches and routers along the path between the client and the
-	// server. Used only in NTPv5.
+	// server. If available, such delay corrections will be applied to the
+	// response's ClockOffset, making it more accurate. Used only in NTPv5.
 	RequestCorrection bool
 
 	// RequestReferenceTime indicates whether to request that the server
@@ -383,24 +386,33 @@ type TimescaleOffset struct {
 	Offset time.Duration
 }
 
+// DelayUnrepresentable is a sentinel value used to indicate that a delay
+// correction value (i.e., OriginDelay or ReturnDelay) is not representable.
+// This occurs when a correction exceeds the maximum value representable by
+// NTP's correction timestamp format.
+var DelayUnrepresentable = time.Duration(math.MaxInt64)
+
 // The Correction struct contains delay correction information provided by
 // network switches and routers along the path between the client and the
 // server. Used only in NTPv5.
 type Correction struct {
-	// Origin is the accumulated delay correction from the request packet.
-	Origin time.Duration
+	// OriginDelay is the total delay correction accumulated by the request
+	// packet on its way from the originating client to the server.
+	OriginDelay time.Duration
 
-	// OriginPathID is the final path identifier from the request packet.
+	// OriginPathID is the path identifier calculated by intermediate nodes on
+	// the request packet's path from the originating client to the server.
 	OriginPathID uint16
 
-	// Delay is the current correction of the network delay that has
-	// accumulated for the packet on the path from the source to the
-	// destination.
-	Delay time.Duration
+	// ReturnDelay is the total delay correction accumulated by the response
+	// packet on its return from the server to the client.
+	ReturnDelay time.Duration
 
-	// DelayPathID is an identifier of the path where the delay correction was
-	// updated.
-	DelayPathID uint16
+	// ReturnPathID is the path identifier calculated by intermediate nodes on
+	// the response packet's return from the server to the client. This may be
+	// compared to the OriginPathID to determine if the request and response
+	// packets traversed the same network path.
+	ReturnPathID uint16
 }
 
 // ResponseFlags are flag bits reported by an NTPv5 server in its response.
