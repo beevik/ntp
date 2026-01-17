@@ -9,7 +9,6 @@ package ntp
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
 	"net"
@@ -20,14 +19,8 @@ import (
 type modeV4 uint8
 
 const (
-	reserved modeV4 = 0 + iota
-	symmetricActive
-	symmetricPassive
-	client
-	server
-	broadcast
-	controlMessage
-	reservedPrivate
+	clientMode modeV4 = 3
+	serverMode modeV4 = 4
 )
 
 // timeShortV4 is a 32-bit fixed-point (Q16.16) representation of the number
@@ -94,32 +87,24 @@ func (m *messageV4) getLeap() LeapIndicator {
 func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Allocate a buffer big enough to hold an entire response datagram.
 	recvBuf := make([]byte, 8192)
-	recvMsg := new(messageV4)
 
-	// Allocate the query message message.
-	xmitMsg := new(messageV4)
-	xmitMsg.setMode(client)
-	xmitMsg.setVersion(opt.Version)
-	xmitMsg.setLeap(LeapNoWarning)
-	xmitMsg.Precision = 0x20
+	// Build the request message.
+	xmitBuf, err := buildV4Request(opt)
 
-	// To help prevent spoofing and client fingerprinting, use a
-	// cryptographically random 64-bit value for the TransmitTime. See:
+	// To help prevent spoofing and client fingerprinting, send a random
+	// 64-bit value for the TransmitTime and make sure the response includes
+	// it in its OriginTime field. See:
 	// https://www.ietf.org/archive/id/draft-ietf-ntp-data-minimization-04.txt
-	var randBits [8]byte
-	_, err := rand.Read(randBits[:])
+	randTimestamp, err := randUint64()
 	if err != nil {
 		return nil, err
 	}
-	xmitMsg.TransmitTime = timestamp(binary.BigEndian.Uint64(randBits[:]))
+	binary.BigEndian.PutUint64(xmitBuf.Bytes()[40:], randTimestamp)
 
-	// Write the query message to a transmit buffer.
-	var xmitBuf bytes.Buffer
-	binary.Write(&xmitBuf, binary.BigEndian, xmitMsg)
-
-	// Allow extensions to process the query and add to the transmit buffer.
+	// Allow package extensions to process the query and make changes to the
+	// transmit buffer.
 	for _, e := range opt.Extensions {
-		err = e.ProcessQuery(&xmitBuf)
+		err = e.ProcessQuery(xmitBuf)
 		if err != nil {
 			return nil, err
 		}
@@ -133,48 +118,34 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Was symmetric key authentication requested?
 	var authKey []byte
 	if opt.Auth.Type != AuthNone {
-		// Decode and validate the auth key string.
 		authKey, err = decodeAuthKey(opt.Auth)
 		if err != nil {
 			return nil, err
 		}
 
-		// Append a MAC field.
 		digest := calcMAC(opt.Version, opt.Auth.Type, authKey, xmitBuf.Bytes())
-		binary.Write(&xmitBuf, binary.BigEndian, opt.Auth.KeyID)
-		binary.Write(&xmitBuf, binary.BigEndian, digest)
+		binary.Write(xmitBuf, binary.BigEndian, opt.Auth.KeyID)
+		binary.Write(xmitBuf, binary.BigEndian, digest)
 	}
 
-	// Transmit the query and keep track of when it was transmitted.
+	// Send the request and keep track of when it was transmitted.
 	xmitTime := opt.GetSystemTime()
 	_, err = conn.Write(xmitBuf.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
-	// Receive the response.
-	recvBytes, err := conn.Read(recvBuf)
+	// Wait for the response.
+	n, err := conn.Read(recvBuf)
 	if err != nil {
 		return nil, err
 	}
+	recvBuf = recvBuf[:n]
 
-	// Keep track of the time the response was received. As of go 1.9, the
-	// time package uses a monotonic clock, so delta will never be less than
-	// zero for go version 1.9 or higher.
+	// Keep track of the time the response was received.
 	recvTime := opt.GetSystemTime()
-	if recvTime.Sub(xmitTime) < 0 {
-		recvTime = xmitTime
-	}
 
-	// Parse the response message.
-	recvBuf = recvBuf[:recvBytes]
-	recvReader := bytes.NewReader(recvBuf)
-	err = binary.Read(recvReader, binary.BigEndian, recvMsg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Allow extensions to process the response.
+	// Allow package extensions to process the response buffer.
 	for i := len(opt.Extensions) - 1; i >= 0; i-- {
 		err = opt.Extensions[i].ProcessResponse(recvBuf)
 		if err != nil {
@@ -182,37 +153,122 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		}
 	}
 
-	// Check for invalid fields.
-	if recvMsg.getMode() != server {
-		return nil, ErrInvalidMode
+	// Parse the response message.
+	m, err := parseV4Response(recvBuf)
+	if err != nil {
+		return nil, err
 	}
-	if recvMsg.TransmitTime == timestamp(0) {
-		return nil, ErrInvalidTransmitTime
-	}
-	if recvMsg.OriginTime != xmitMsg.TransmitTime {
+
+	// Verify that the message's OriginTime matches the random value we sent.
+	if m.OriginTime != timestamp(randTimestamp) {
 		return nil, ErrServerResponseMismatch
 	}
-	if recvMsg.ReceiveTime > recvMsg.TransmitTime {
-		return nil, ErrServerTickedBackwards
-	}
 
-	// Convert transmit and receive times to timestamps.
-	xmitTimestamp := toTimestamp(xmitTime)
-	recvTimestamp := toTimestamp(recvTime)
-
-	// Correct the received message's origin time using the actual transmit
-	// time.
-	recvMsg.OriginTime = xmitTimestamp
+	// Timestamp aliases for readability.
+	t1 := xmitTime
+	t2 := m.ReceiveTime.TimeV4()
+	t3 := m.TransmitTime.TimeV4()
+	t4 := recvTime
 
 	// Compose the response struct.
-	response := generateV4Response(recvMsg, recvTimestamp)
+	r := &Response{
+		ClockOffset:    offset(t1, t2, t3, t4),
+		Time:           m.TransmitTime.TimeV4(),
+		RTT:            rtt(t1, t2, t3, t4),
+		Precision:      toInterval(m.Precision),
+		Version:        m.getVersion(),
+		Stratum:        m.Stratum,
+		Era:            inferEra(m.TransmitTime),
+		Timescale:      TimescaleUTC,
+		ReferenceID:    m.ReferenceID,
+		ReferenceTime:  m.ReferenceTime.TimeV4(),
+		RootDelay:      m.RootDelay.Duration(),
+		RootDispersion: m.RootDispersion.Duration(),
+		Leap:           m.getLeap(),
+		MinError:       minError(t1, t2, t3, t4),
+		Poll:           toInterval(m.Poll),
+		Flags:          0,
+	}
+
+	// Calculate root distance.
+	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
+
+	// If a kiss of death was received, interpret the reference ID as
+	// a kiss code.
+	if r.Stratum == 0 {
+		r.KissCode = kissCode(r.ReferenceID)
+	}
+
+	// Responses with valid stratum values are considered synchronized.
+	if r.Stratum > 1 && r.Stratum < maxStratum {
+		r.Flags |= FlagSynchronized
+	}
 
 	// If symmetric authentication was requested, authenticate the response.
 	if opt.Auth.Type != AuthNone {
-		response.authErr = verifyMAC(recvBuf, opt, authKey)
+		r.authErr = verifyMAC(recvBuf, opt, authKey)
 	}
 
-	return response, response.authErr
+	return r, r.authErr
+}
+
+// buildV4Request creates an NTPv3 or NTPv4 request message.
+func buildV4Request(opt *QueryOptions) (*bytes.Buffer, error) {
+	// Build the NTPv4 message.
+	m := messageV4{}
+	m.setVersion(opt.Version)
+	m.setMode(clientMode)
+	m.setLeap(LeapNoWarning)
+
+	// Write the message to a buffer.
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, m.LiVnMode)
+	binary.Write(buf, binary.BigEndian, m.Stratum)
+	binary.Write(buf, binary.BigEndian, m.Poll)
+	binary.Write(buf, binary.BigEndian, m.Precision)
+	binary.Write(buf, binary.BigEndian, m.RootDelay)
+	binary.Write(buf, binary.BigEndian, m.RootDispersion)
+	binary.Write(buf, binary.BigEndian, m.ReferenceID)
+	binary.Write(buf, binary.BigEndian, m.ReferenceTime)
+	binary.Write(buf, binary.BigEndian, m.OriginTime)
+	binary.Write(buf, binary.BigEndian, m.ReceiveTime)
+	binary.Write(buf, binary.BigEndian, m.TransmitTime)
+
+	return buf, nil
+}
+
+// parseV4Response parses an NTPv3 or NTPv4 response message from a buffer.
+func parseV4Response(data []byte) (*messageV4, error) {
+	if len(data) < msgSize {
+		return nil, ErrInvalidTime
+	}
+
+	m := &messageV4{}
+	r := bytes.NewReader(data)
+	binary.Read(r, binary.BigEndian, &m.LiVnMode)
+	binary.Read(r, binary.BigEndian, &m.Stratum)
+	binary.Read(r, binary.BigEndian, &m.Poll)
+	binary.Read(r, binary.BigEndian, &m.Precision)
+	binary.Read(r, binary.BigEndian, &m.RootDelay)
+	binary.Read(r, binary.BigEndian, &m.RootDispersion)
+	binary.Read(r, binary.BigEndian, &m.ReferenceID)
+	binary.Read(r, binary.BigEndian, &m.ReferenceTime)
+	binary.Read(r, binary.BigEndian, &m.OriginTime)
+	binary.Read(r, binary.BigEndian, &m.ReceiveTime)
+	binary.Read(r, binary.BigEndian, &m.TransmitTime)
+
+	// Check for invalid fields.
+	if m.getMode() != serverMode {
+		return nil, ErrInvalidMode
+	}
+	if m.TransmitTime == timestamp(0) {
+		return nil, ErrInvalidTransmitTime
+	}
+	if m.ReceiveTime > m.TransmitTime {
+		return nil, ErrServerTickedBackwards
+	}
+
+	return m, nil
 }
 
 func verifyMAC(buf []byte, opt *QueryOptions, key []byte) error {
@@ -250,114 +306,6 @@ func verifyMAC(buf []byte, opt *QueryOptions, key []byte) error {
 	}
 
 	return nil
-}
-
-// generateV4Response processes NTP message fields along with the the receive
-// time to generate a Response record.
-func generateV4Response(m *messageV4, recvTime timestamp) *Response {
-	r := &Response{
-		Time:                    m.TransmitTime.TimeV4(),
-		ClockOffset:             offset(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		RTT:                     rtt(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		Precision:               toInterval(m.Precision),
-		Version:                 m.getVersion(),
-		Stratum:                 m.Stratum,
-		ReferenceID:             m.ReferenceID,
-		ReferenceTime:           m.ReferenceTime.TimeV4(),
-		ReferenceIDFilterValues: nil,
-		RootDelay:               m.RootDelay.Duration(),
-		RootDispersion:          m.RootDispersion.Duration(),
-		Leap:                    m.getLeap(),
-		MinError:                minError(m.OriginTime, m.ReceiveTime, m.TransmitTime, recvTime),
-		Poll:                    toInterval(m.Poll),
-		Flags:                   0,
-	}
-
-	// Calculate values depending on other calculated values
-	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
-
-	// If a kiss of death was received, interpret the reference ID as
-	// a kiss code.
-	if r.Stratum == 0 {
-		r.KissCode = kissCode(r.ReferenceID)
-	}
-
-	// Responses with valid stratum values are considered synchronized.
-	if r.Stratum > 1 && r.Stratum < maxStratum {
-		r.Flags |= FlagSynchronized
-	}
-
-	return r
-}
-
-// The following helper functions calculate additional metadata about the
-// timestamps received from an NTP server.  The timestamps returned by
-// the server are given the following variable names:
-//
-//   org = Origin Timestamp (client send time)
-//   rec = Receive Timestamp (server receive time)
-//   xmt = Transmit Timestamp (server reply time)
-//   dst = Destination Timestamp (client receive time)
-
-func rtt(org, rec, xmt, dst timestamp) time.Duration {
-	a := int64(dst - org)
-	b := int64(xmt - rec)
-	rtt := max(a-b, 0)
-	return timestamp(rtt).Duration()
-}
-
-func offset(org, rec, xmt, dst timestamp) time.Duration {
-	// The inputs are 64-bit unsigned integer timestamps. These timestamps can
-	// "roll over" at the end of an NTP era, which occurs approximately every
-	// 136 years starting from the year 1900. To ensure an accurate offset
-	// calculation when an era boundary is crossed, we need to take care that
-	// the difference between two 64-bit timestamp values is accurately
-	// calculated even when they are in neighboring eras.
-	//
-	// See: https://www.eecis.udel.edu/~mills/y2k.html
-
-	a := int64(rec - org)
-	b := int64(xmt - dst)
-	offset := a + (b-a)/2
-	if offset < 0 {
-		return -timestamp(-offset).Duration()
-	}
-	return timestamp(offset).Duration()
-}
-
-func minError(org, rec, xmt, dst timestamp) time.Duration {
-	// Each NTP response contains two pairs of send/receive timestamps.
-	// When either pair indicates a "causality violation", we calculate the
-	// error as the difference in time between them. The minimum error is
-	// the greater of the two causality violations.
-	var error0, error1 timestamp
-	if org >= rec {
-		error0 = org - rec
-	}
-	if xmt >= dst {
-		error1 = xmt - dst
-	}
-	if error0 > error1 {
-		return error0.Duration()
-	}
-	return error1.Duration()
-}
-
-func rootDistance(rtt, rootDelay, rootDisp time.Duration) time.Duration {
-	// The root distance is:
-	// 	the maximum error due to all causes of the local clock
-	//	relative to the primary server. It is defined as half the
-	//	total delay plus total dispersion plus peer jitter.
-	//	(https://tools.ietf.org/html/rfc5905#appendix-A.5.5.2)
-	//
-	// In the reference implementation, it is calculated as follows:
-	//	rootDist = max(MINDISP, rootDelay + rtt)/2 + rootDisp
-	//			+ peerDisp + PHI * (uptime - peerUptime)
-	//			+ peerJitter
-	// For an SNTP client which sends only a single packet, most of these
-	// terms are irrelevant and become 0.
-	totalDelay := rtt + rootDelay
-	return totalDelay/2 + rootDisp
 }
 
 func kissCode(id uint32) string {

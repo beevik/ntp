@@ -10,7 +10,6 @@ package ntp
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
@@ -185,36 +184,10 @@ func (m *messageV5) getLeap() LeapIndicator {
 	return LeapIndicator((m.LiVnMode >> 6) & 0x03)
 }
 
-// parseV5Response parses the NTPv5 response message from a buffer.
-func parseV5Response(data []byte) (*messageV5, error) {
-	if len(data) < msgSize {
-		return nil, ErrInvalidTime
-	}
-
-	m := &messageV5{}
-	r := bytes.NewReader(data)
-
-	binary.Read(r, binary.BigEndian, &m.LiVnMode)
-	binary.Read(r, binary.BigEndian, &m.Stratum)
-	binary.Read(r, binary.BigEndian, &m.Poll)
-	binary.Read(r, binary.BigEndian, &m.Precision)
-	binary.Read(r, binary.BigEndian, &m.RootDelay)
-	binary.Read(r, binary.BigEndian, &m.RootDisp)
-	binary.Read(r, binary.BigEndian, &m.Timescale)
-	binary.Read(r, binary.BigEndian, &m.Era)
-	binary.Read(r, binary.BigEndian, &m.Flags)
-	binary.Read(r, binary.BigEndian, &m.ServerCookie)
-	binary.Read(r, binary.BigEndian, &m.ClientCookie)
-	binary.Read(r, binary.BigEndian, &m.ReceiveTime)
-	binary.Read(r, binary.BigEndian, &m.TransmitTime)
-
-	return m, nil
-}
-
 // queryV5 performs an NTPv5 time query using the provided connection.
 func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Generate a random client cookie if not set by the caller.
-	clientCookie, err := generateCookie()
+	clientCookie, err := randUint64()
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +244,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Keep track of the time the response message was received.
 	clientRecvTime := opt.GetSystemTime()
 
-	// Allow package extensions to process the response message.
+	// Allow package extensions to process the response buffer.
 	for i := len(opt.Extensions) - 1; i >= 0; i-- {
 		err = opt.Extensions[i].ProcessResponse(recvBuf)
 		if err != nil {
@@ -285,19 +258,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, err
 	}
 
-	// Check for invalid fields in the response message.
-	if m.getMode() != responseMode {
-		return nil, ErrInvalidMode
-	}
-	if m.TransmitTime == timestamp(0) {
-		return nil, ErrInvalidTransmitTime
-	}
-	if m.ReceiveTime > m.TransmitTime {
-		return nil, ErrServerTickedBackwards
-	}
-	if m.getVersion() != 5 {
-		return nil, ErrInvalidProtocolVersion
-	}
+	// Compare cookies.
 	if m.ClientCookie != clientCookie {
 		return nil, ErrServerResponseMismatch
 	}
@@ -306,18 +267,33 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	serverRecvTime := timestamp(m.ReceiveTime).Time(m.Era)
 	serverXmitTime := timestamp(m.TransmitTime).Time(m.Era)
 
+	// Timestamp aliases for readability.
+	t1 := clientXmitTime
+	t2 := serverRecvTime
+	t3 := serverXmitTime
+	t4 := clientRecvTime
+
 	// Prepare the response struct.
 	r := &Response{
-		Time:         serverXmitTime,
-		Precision:    toInterval(m.Precision),
-		Version:      5,
-		Stratum:      m.Stratum,
-		Timescale:    Timescale(m.Timescale),
-		Era:          m.Era,
-		Leap:         m.getLeap(),
-		Poll:         toInterval(m.Poll),
-		ServerCookie: m.ServerCookie,
+		ClockOffset:    offset(t1, t2, t3, t4),
+		Time:           serverXmitTime,
+		RTT:            rtt(t1, t2, t3, t4),
+		Precision:      toInterval(m.Precision),
+		Version:        5,
+		Stratum:        m.Stratum,
+		Timescale:      Timescale(m.Timescale),
+		Era:            m.Era,
+		RootDelay:      m.RootDelay.Duration(),
+		RootDispersion: m.RootDisp.Duration(),
+		Leap:           m.getLeap(),
+		MinError:       minError(t1, t2, t3, t4),
+		Poll:           toInterval(m.Poll),
+		Flags:          0,
+		ServerCookie:   m.ServerCookie,
 	}
+
+	// Calculate root distance.
+	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
 
 	// Determine response flags.
 	if m.Flags&flagSynchronized != 0 {
@@ -330,29 +306,6 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Check for an authentication NAK.
 	if m.Flags&flagAuthNAK != 0 {
 		r.authErr = ErrAuthNAK
-	}
-
-	// Assign brief timestamp variables for readability (will be optimized
-	// away).
-	t1 := clientXmitTime
-	t2 := serverRecvTime
-	t3 := serverXmitTime
-	t4 := clientRecvTime
-
-	// Calculate the uncorrected clock offset.
-	r.ClockOffset = (t2.Sub(t1) + t3.Sub(t4)) / 2
-
-	// Calculate the uncorrected round-trip time.
-	r.RTT = max(t4.Sub(t1)-t3.Sub(t2), 0)
-
-	// Calculate root dispersion and distance.
-	r.RootDelay = m.RootDelay.Duration()
-	r.RootDispersion = m.RootDisp.Duration()
-	r.RootDistance = (r.RTT+r.RootDelay)/2 + r.RootDispersion
-
-	// Calculate min error (causality violation detection).
-	if t2.Before(t1) || t4.Before(t3) {
-		r.MinError = max(t1.Sub(t2), t3.Sub(t4))
 	}
 
 	// Process extension fields.
@@ -540,20 +493,44 @@ func buildV5Request(opt *QueryOptions, clientCookie uint64) (*bytes.Buffer, erro
 	return buf, nil
 }
 
-// generateCookie creates a random non-zero 64-bit cookie value.
-func generateCookie() (uint64, error) {
-	for {
-		var cookieBytes [8]byte
-		_, err := rand.Read(cookieBytes[:])
-		if err != nil {
-			return 0, err
-		}
-
-		cookie := binary.BigEndian.Uint64(cookieBytes[:])
-		if cookie != 0 {
-			return cookie, nil
-		}
+// parseV5Response parses the NTPv5 response message from a buffer.
+func parseV5Response(data []byte) (*messageV5, error) {
+	if len(data) < msgSize {
+		return nil, ErrInvalidTime
 	}
+
+	m := &messageV5{}
+	r := bytes.NewReader(data)
+
+	binary.Read(r, binary.BigEndian, &m.LiVnMode)
+	binary.Read(r, binary.BigEndian, &m.Stratum)
+	binary.Read(r, binary.BigEndian, &m.Poll)
+	binary.Read(r, binary.BigEndian, &m.Precision)
+	binary.Read(r, binary.BigEndian, &m.RootDelay)
+	binary.Read(r, binary.BigEndian, &m.RootDisp)
+	binary.Read(r, binary.BigEndian, &m.Timescale)
+	binary.Read(r, binary.BigEndian, &m.Era)
+	binary.Read(r, binary.BigEndian, &m.Flags)
+	binary.Read(r, binary.BigEndian, &m.ServerCookie)
+	binary.Read(r, binary.BigEndian, &m.ClientCookie)
+	binary.Read(r, binary.BigEndian, &m.ReceiveTime)
+	binary.Read(r, binary.BigEndian, &m.TransmitTime)
+
+	// Check for invalid fields in the response message.
+	if m.getMode() != responseMode {
+		return nil, ErrInvalidMode
+	}
+	if m.TransmitTime == timestamp(0) {
+		return nil, ErrInvalidTransmitTime
+	}
+	if m.ReceiveTime > m.TransmitTime {
+		return nil, ErrServerTickedBackwards
+	}
+	if m.getVersion() != 5 {
+		return nil, ErrInvalidProtocolVersion
+	}
+
+	return m, nil
 }
 
 func writeExtDraftID(buf *bytes.Buffer) {

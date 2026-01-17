@@ -62,21 +62,6 @@ func fmtEpoch(epoch uint32) string {
 	return fmt.Sprintf("0x%08x", epoch)
 }
 
-func fmtTimescale(ts Timescale) string {
-	switch ts {
-	case TimescaleUTC:
-		return "UTC"
-	case TimescaleTAI:
-		return "TAI"
-	case TimescaleUT1:
-		return "UT1"
-	case TimescaleUTCSmeared:
-		return "UTC(smeared)"
-	default:
-		return "Unknown"
-	}
-}
-
 func fmtTimescaleOffset(o TimescaleOffset) string {
 	return fmt.Sprintf("%s=%v", fmtTimescale(o.Timescale), o.Offset)
 }

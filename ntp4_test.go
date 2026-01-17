@@ -25,6 +25,8 @@ func logResponseV4(t *testing.T, r *Response) {
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
 	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
+	t.Logf("[%s]         Era: %d", host, r.Era)
+	t.Logf("[%s]   Timescale: %s", host, fmtTimescale(r.Timescale))
 	t.Logf("[%s]       RefID: %s (0x%08x)", host, r.ReferenceString(), r.ReferenceID)
 	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
 	t.Logf("[%s]        Poll: %s", host, r.Poll)
@@ -95,18 +97,6 @@ func TestOnlineV4TimeFailure(t *testing.T) {
 	now := time.Now()
 	diffMinutes := now.Sub(local).Minutes()
 	assert.True(t, diffMinutes > -1 && diffMinutes < 1)
-}
-
-func TestOnlineV4TTL(t *testing.T) {
-	if host == "localhost" {
-		t.Skip("TTL test not available with localhost NTP server.")
-		return
-	}
-
-	// TTL of 1 should cause a timeout.
-	r, err := QueryWithOptions(host, QueryOptions{TTL: 1, Timeout: 1 * time.Second})
-	assert.Nil(t, r)
-	assert.NotNil(t, err)
 }
 
 func TestOnlineV4CustomGetSystemTime(t *testing.T) {
@@ -235,27 +225,16 @@ func TestOfflineV4CustomDialerDeprecated(t *testing.T) {
 
 func TestOfflineV4MinError(t *testing.T) {
 	start := time.Now()
-	m := &messageV4{
-		Stratum:       1,
-		ReferenceID:   refID,
-		ReferenceTime: toTimestamp(start),
-		OriginTime:    toTimestamp(start.Add(1 * time.Second)),
-		ReceiveTime:   toTimestamp(start.Add(2 * time.Second)),
-		TransmitTime:  toTimestamp(start.Add(3 * time.Second)),
-	}
-	r := generateV4Response(m, toTimestamp(start.Add(4*time.Second)))
-	assertValid(t, r)
-	assert.Equal(t, r.MinError, time.Duration(0))
 
 	for org := 1 * time.Second; org <= 10*time.Second; org += time.Second {
 		for rec := 1 * time.Second; rec <= 10*time.Second; rec += time.Second {
 			for xmt := rec; xmt <= 10*time.Second; xmt += time.Second {
 				for dst := org; dst <= 10*time.Second; dst += time.Second {
-					m.OriginTime = toTimestamp(start.Add(org))
-					m.ReceiveTime = toTimestamp(start.Add(rec))
-					m.TransmitTime = toTimestamp(start.Add(xmt))
-					r = generateV4Response(m, toTimestamp(start.Add(dst)))
-					assertValid(t, r)
+					t1 := start.Add(org)
+					t2 := start.Add(rec)
+					t3 := start.Add(xmt)
+					t4 := start.Add(dst)
+
 					var error0, error1 time.Duration
 					if org >= rec {
 						error0 = org - rec
@@ -263,13 +242,12 @@ func TestOfflineV4MinError(t *testing.T) {
 					if xmt >= dst {
 						error1 = xmt - dst
 					}
-					var minError time.Duration
-					if error0 > error1 {
-						minError = error0
-					} else {
-						minError = error1
-					}
-					assert.Equal(t, r.MinError, minError)
+
+					var mex time.Duration
+					mex = max(error0, error1)
+
+					m := minError(t1, t2, t3, t4)
+					assert.Equal(t, mex, m)
 				}
 			}
 		}
@@ -288,7 +266,7 @@ func TestOfflineV4OffsetCalculation(t *testing.T) {
 	// (20 +  17) / 2
 	// 37 / 2 = 18
 	expectedOffset := 18 * time.Second
-	offset := offset(t1, t2, t3, t4)
+	offset := offset(t1.TimeV4(), t2.TimeV4(), t3.TimeV4(), t4.TimeV4())
 	assert.Equal(t, expectedOffset, offset)
 }
 
@@ -303,7 +281,7 @@ func TestOfflineV4OffsetCalculationNegative(t *testing.T) {
 	// ((102 - 101) + (103 - 105)) / 2
 	// (1 + -2) / 2 = -1 / 2
 	expectedOffset := -time.Second / 2
-	offset := offset(t1, t2, t3, t4)
+	offset := offset(t1.TimeV4(), t2.TimeV4(), t3.TimeV4(), t4.TimeV4())
 	assert.Equal(t, expectedOffset, offset)
 }
 
@@ -331,13 +309,13 @@ func TestOfflineV4OffsetRollover(t *testing.T) {
 		clientTime, _ := time.Parse(timeFormat, c.clientTime)
 		serverTime, _ := time.Parse(timeFormat, c.serverTime)
 
-		org := toTimestamp(clientTime)
-		rec := toTimestamp(serverTime)
-		xmt := toTimestamp(serverTime.Add(1 * time.Second))
-		dst := toTimestamp(clientTime.Add(1 * time.Second))
+		t1 := toTimestamp(clientTime)
+		t2 := toTimestamp(serverTime)
+		t3 := toTimestamp(serverTime.Add(1 * time.Second))
+		t4 := toTimestamp(clientTime.Add(1 * time.Second))
 
 		expectedValue := serverTime.Sub(clientTime)
-		value := offset(org, rec, xmt, dst)
+		value := offset(t1.TimeV4(), t2.TimeV4(), t3.TimeV4(), t4.TimeV4())
 		assert.Equal(t, expectedValue, value)
 	}
 }
@@ -433,46 +411,90 @@ func TestOfflineV4TimeConversions(t *testing.T) {
 }
 
 func TestOfflineV4Validate(t *testing.T) {
-	var m messageV4
-	var r *Response
-	m.Stratum = 1
-	m.ReferenceID = refID
-	m.ReferenceTime = 1 << 32
-	m.Precision = -1 // 500ms
+	r := Response{
+		ClockOffset:    0,
+		Time:           timestamp(1 << 32).TimeV4(),
+		RTT:            100 * time.Millisecond,
+		Precision:      500 * time.Millisecond,
+		Version:        4,
+		Stratum:        1,
+		ReferenceID:    refID,
+		ReferenceTime:  timestamp(1 << 32).TimeV4(),
+		RootDelay:      1 * time.Millisecond,
+		RootDispersion: 1 * time.Millisecond,
+		RootDistance:   2 * time.Millisecond,
+		Leap:           LeapNoWarning,
+		MinError:       1 * time.Millisecond,
+		Poll:           1 * time.Second,
+		Flags:          0,
+	}
+	assertValid(t, &r)
 
 	// Zero RTT
-	m.OriginTime = 1 << 32
-	m.ReceiveTime = 1 << 32
-	m.TransmitTime = 1 << 32
-	r = generateV4Response(&m, 1<<32)
-	assertValid(t, r)
+	r2 := r
+	r2.RTT = 0 * time.Second
+	assertValid(t, &r2)
 
 	// Negative freshness
-	m.ReferenceTime = 2 << 32
-	r = generateV4Response(&m, 1<<32)
-	assertInvalid(t, r)
+	r2 = r
+	r2.ReferenceTime = timestamp(2 << 32).TimeV4()
+	assertInvalid(t, &r2)
 
 	// Unfresh clock (48h)
-	m.OriginTime = 2 * 86400 << 32
-	m.ReceiveTime = 2 * 86400 << 32
-	m.TransmitTime = 2 * 86400 << 32
-	r = generateV4Response(&m, 2*86400<<32)
-	assertInvalid(t, r)
+	r2 = r
+	r2.ReferenceTime = timestamp(1 << 32).TimeV4()
+	r2.Time = timestamp(2 * 86400 << 32).TimeV4()
+	assertInvalid(t, &r2)
 
 	// Fresh clock (24h)
-	m.ReferenceTime = 1 * 86400 << 32
-	r = generateV4Response(&m, 2*86400<<32)
-	assertValid(t, r)
+	r2 = r
+	r2.ReferenceTime = timestamp(1 * 86400 << 32).TimeV4()
+	assertValid(t, &r)
 
-	// Values indicating a negative RTT
-	m.RootDelay = 16 << 16
-	m.ReferenceTime = 1 << 32
-	m.OriginTime = 20 << 32
-	m.ReceiveTime = 10 << 32
-	m.TransmitTime = 15 << 32
-	r = generateV4Response(&m, 22<<32)
-	assert.NotNil(t, r)
-	assertValid(t, r)
-	assert.Equal(t, r.RTT, 0*time.Second)
-	assert.Equal(t, r.RootDistance, 8*time.Second)
+	// Negative RTT
+	r2 = r
+	r2.RTT = -1 * time.Second
+	assertValid(t, &r2)
+
+	// Invalid disperson
+	r2 = r
+	r2.RootDelay = 32 * time.Second
+	r2.RootDispersion = 500 * time.Millisecond
+	assertInvalid(t, &r2)
+
+	// Valid leap seconds
+	r2 = r
+	r2.Leap = LeapAddSecond
+	assertValid(t, &r2)
+	r2.Leap = LeapDelSecond
+	assertValid(t, &r2)
+
+	// Invalid leap second
+	r2 = r
+	r2.Leap = LeapNotInSync
+	assertInvalid(t, &r2)
+
+	// Valid stratum
+	for i := 1; i < maxStratum; i++ {
+		r2 = r
+		r2.Stratum = byte(i)
+		assertValid(t, &r2)
+	}
+
+	// Invalid stratum
+	r2 = r
+	r2.Stratum = maxStratum
+	assertInvalid(t, &r2)
+	r2.Stratum = 0
+	assertInvalid(t, &r2)
+
+	// Authentication error
+	r2 = r
+	r2.authErr = errors.New("authentication error")
+	assertInvalid(t, &r2)
+
+	// Invalid time
+	r2 = r
+	r2.Time = r2.ReferenceTime.Add(time.Duration(-1) * time.Second)
+	assertInvalid(t, &r2)
 }

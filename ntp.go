@@ -12,6 +12,7 @@ package ntp
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -266,7 +267,7 @@ type Response struct {
 	Stratum uint8
 
 	// Timescale reports the timescale used by the server to timestamp
-	// messages it sent and received. Used only in NTPv5.
+	// messages it sent and received. Always TimescaleUTC for NTPv3 and NTPv4.
 	Timescale Timescale
 
 	// TimescaleOffsets contains the time offsets of any requested additional
@@ -274,7 +275,7 @@ type Response struct {
 	TimescaleOffsets []TimescaleOffset
 
 	// Era is the NTP era number returned by the server. Era 0 spans
-	// 1900-2036, Era 1 spans 2036-2172, etc. Used only in NTPv5.
+	// 1900-2036, Era 1 spans 2036-2172, etc.
 	Era uint8
 
 	// ReferenceID is a 32-bit integer used to help identify which server or
@@ -716,6 +717,62 @@ func getEra(t time.Time) int64 {
 	return int64(ntpSec >> 32)
 }
 
+// offset calculates an uncorrected clock offset using the four NTP
+// timestamps.
+func offset(t1, t2, t3, t4 time.Time) time.Duration {
+	return (t2.Sub(t1) + t3.Sub(t4)) / 2
+}
+
+// rtt calculates the round-trip-time delay using the four NTP timestamps.
+func rtt(t1, t2, t3, t4 time.Time) time.Duration {
+	return max(t4.Sub(t1)-t3.Sub(t2), 0)
+}
+
+// minError calculates a lower bound on the error between the client and
+// server clocks using the four NTP timestamps.
+func minError(t1, t2, t3, t4 time.Time) time.Duration {
+	if t2.Before(t1) || t4.Before(t3) {
+		return max(t1.Sub(t2), t3.Sub(t4))
+	}
+	return 0
+}
+
+// rootDistance estimates the root distance between the client and the stratum
+// 1 server.
+func rootDistance(rtt, rootDelay, rootDisp time.Duration) time.Duration {
+	// The root distance is:
+	// 	the maximum error due to all causes of the local clock
+	//	relative to the primary server. It is defined as half the
+	//	total delay plus total dispersion plus peer jitter.
+	//	(https://tools.ietf.org/html/rfc5905#appendix-A.5.5.2)
+	//
+	// In the reference implementation, it is calculated as follows:
+	//	rootDist = max(MINDISP, rootDelay + rtt)/2 + rootDisp
+	//			+ peerDisp + PHI * (uptime - peerUptime)
+	//			+ peerJitter
+	// For an SNTP client which sends only a single packet, most of these
+	// terms are irrelevant and become 0.
+	totalDelay := rtt + rootDelay
+	return totalDelay/2 + rootDisp
+}
+
+// randUint64 creates a random non-zero 64-bit cookie value.
+func randUint64() (uint64, error) {
+	for range 4 {
+		var cookieBytes [8]byte
+		_, err := rand.Read(cookieBytes[:])
+		if err != nil {
+			return 0, err
+		}
+
+		cookie := binary.BigEndian.Uint64(cookieBytes[:])
+		if cookie != 0 {
+			return cookie, nil
+		}
+	}
+	return 0, errors.New("failed to generate non-zero random value")
+}
+
 // An timestamp is a 64-bit fixed-point (Q32.32) representation of the
 // number of seconds elapsed.
 type timestamp uint64
@@ -740,15 +797,24 @@ func (t timestamp) Time(era uint8) time.Time {
 // TimeV4 interprets the NTPv3/NTPv4 timestamp value as an absolute time and
 // returns the corresponding time.Time value.
 func (t timestamp) TimeV4() time.Time {
-	// Assume NTP era 1 (year 2036+) if the raw timestamp suggests a year
-	// before 1970. Otherwise assume NTP era 0. This allows the function to
-	// report an accurate time value both before and after the 0-to-1 era
-	// rollover.
-	const t1970 = 0x83aa_7e80_0000_0000
-	if uint64(t) < t1970 {
+	if inferEra(t) == 1 {
 		return ntpEra1.Add(t.Duration())
 	}
 	return ntpEra0.Add(t.Duration())
+}
+
+// inferEra infers an NTP era from a timestamp value. This function is used
+// only for NTPv3 and NTPv4 timestamps.
+func inferEra(t timestamp) uint8 {
+	// Assume NTP era 1 (year 2036+) if the raw timestamp suggests a year
+	// before 1970. Otherwise assume NTP era 0. This allows us to properly
+	// handle the rollover from era 0 to 1 when converting timestamps to
+	// times.
+	const t1970 = 0x83aa_7e80_0000_0000
+	if uint64(t) < t1970 {
+		return 1
+	}
+	return 0
 }
 
 // toTimestamp converts a Time value into its 64-bit fixed-point timestamp

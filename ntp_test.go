@@ -82,6 +82,21 @@ func fmtTime(value time.Time) string {
 	return value.Format(timeFormat)
 }
 
+func fmtTimescale(ts Timescale) string {
+	switch ts {
+	case TimescaleUTC:
+		return "UTC"
+	case TimescaleTAI:
+		return "TAI"
+	case TimescaleUT1:
+		return "UT1"
+	case TimescaleUTCSmeared:
+		return "UTC(smeared)"
+	default:
+		return "Unknown"
+	}
+}
+
 func isError(t *testing.T, host string, err error) bool {
 	switch {
 	case err == nil:
