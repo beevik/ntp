@@ -23,6 +23,7 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
 	t.Logf("[%s]         RTT: %s", host, r.RTT)
+	t.Logf("[%s]  Correction: %s", host, fmtCorrection(r.Correction))
 	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
 	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
 	t.Logf("[%s]    XmitTime: %s", host, fmtTime(r.Time))
@@ -38,7 +39,6 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
 	t.Logf("[%s]   Supported: %v", host, r.SupportedVersions)
 	t.Logf("[%s]        Poll: %s", host, r.Poll)
-	t.Logf("[%s]  Correction: %s", host, fmtCorrection(r.Correction))
 	t.Logf("[%s]   Precision: %s", host, r.Precision)
 	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay)
 	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
@@ -133,7 +133,7 @@ func TestOnlineV5Query(t *testing.T) {
 		RequestReferenceTime:     true,
 		RequestMonotonic:         true,
 		RequestInterleavedMode:   true,
-		ReferenceIDRequest: ReferenceIDRequest{
+		RequestReferenceID: ReferenceIDRequest{
 			ChunkOffset: 0,
 			ChunkSize:   uint16(512),
 		},

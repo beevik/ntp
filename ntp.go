@@ -25,26 +25,22 @@ import (
 )
 
 var (
-	ErrAuthFailed                = errors.New("authentication failed")
-	ErrAuthNAK                   = errors.New("authentication NAK received")
-	ErrExtensionsNotSupported    = errors.New("NTPV3 does not support extension fields")
-	ErrInvalidAuthKey            = errors.New("invalid authentication key")
-	ErrInvalidDispersion         = errors.New("invalid dispersion in response")
-	ErrInvalidDraftID            = errors.New("invalid draft ID value in response")
-	ErrInvalidExtensionField     = errors.New("invalid extension field in response")
-	ErrInvalidLeapSecond         = errors.New("invalid leap second in response")
-	ErrInvalidMode               = errors.New("invalid mode in response")
-	ErrInvalidProtocolVersion    = errors.New("invalid protocol version requested")
-	ErrInvalidReferenceRequest   = errors.New("invalid reference ID request")
-	ErrInvalidStratum            = errors.New("invalid stratum in response")
-	ErrInvalidTime               = errors.New("invalid time reported")
-	ErrInvalidTransmitTime       = errors.New("invalid transmit time in response")
-	ErrKissOfDeath               = errors.New("kiss of death received")
-	ErrServerClockFreshness      = errors.New("server clock not fresh")
-	ErrServerNotSynchronized     = errors.New("NTPv5 server not synchronized")
-	ErrServerResponseMismatch    = errors.New("server response didn't match request")
-	ErrServerTickedBackwards     = errors.New("server clock ticked backwards")
-	ErrUnexpectedCorrectionField = errors.New("unexpected correction extension field in response")
+	ErrAuthFailed             = errors.New("authentication MAC verification failed")
+	ErrAuthNAK                = errors.New("authentication NAK received")
+	ErrExtensionsNotSupported = errors.New("NTPV3 does not support extension fields")
+	ErrInvalidAuthKey         = errors.New("invalid authentication key")
+	ErrInvalidDispersion      = errors.New("invalid dispersion in response")
+	ErrInvalidLeapSecond      = errors.New("invalid leap second in response")
+	ErrInvalidMode            = errors.New("invalid mode in response")
+	ErrInvalidProtocolVersion = errors.New("invalid protocol version requested")
+	ErrInvalidStratum         = errors.New("invalid stratum in response")
+	ErrInvalidTime            = errors.New("invalid time reported")
+	ErrInvalidTransmitTime    = errors.New("invalid transmit time in response")
+	ErrKissOfDeath            = errors.New("kiss of death received")
+	ErrServerClockFreshness   = errors.New("server clock not fresh")
+	ErrServerNotSynchronized  = errors.New("NTPv5 server not synchronized")
+	ErrServerResponseMismatch = errors.New("server response didn't match request")
+	ErrServerTickedBackwards  = errors.New("server clock ticked backwards")
 )
 
 // Internal constants
@@ -147,6 +143,10 @@ type QueryOptions struct {
 	// NTPv5.
 	AdditionalTimescales []Timescale
 
+	// ServerCookie contains the server cookie returned by a prior server
+	// response when operating in interleaved mode. Used only in NTPv5.
+	ServerCookie uint64
+
 	// Auth contains the options used to configure symmetric key
 	// authentication. See RFC 5905 for further details. For NTPv3 and NTPv4,
 	// this results in a MAC or digest being appended to the end of the NTP
@@ -155,11 +155,12 @@ type QueryOptions struct {
 	// authentication.
 	Auth AuthOptions
 
-	// Extensions may be added in order to (a) modify NTP queries before they
-	// are transmitted and (b) process NTP responses after they arrive. When
-	// building an NTP request, extensions are processed in the order listed.
-	// When processing a server response, extensions are processed in reverse
-	// order.
+	// Extensions may be provided in order to (a) modify NTP queries before
+	// they are transmitted and (b) process NTP responses after they arrive.
+	// When building an NTP request, these extensions are processed in the
+	// order listed. When processing a server response, they are processed in
+	// reverse order. An example of an extension is one that implements
+	// Network Time Security (NTS). See: https://github.com/beevik/nts.
 	Extensions []Extension
 
 	// GetSystemTime is a callback used to override the default method of
@@ -167,10 +168,10 @@ type QueryOptions struct {
 	// specified, time.Now is used.
 	GetSystemTime func() time.Time
 
-	// ReferenceIDRequest is an optional field used to request NTPv5 reference
-	// ID bloom filter values. The filter values are returned in the Response
-	// struct's ReferenceIDFilterValues field. Used only in NTPv5.
-	ReferenceIDRequest ReferenceIDRequest
+	// RequestReferenceID is a struct used to request reference ID bloom
+	// filter values, which are returned in the ReferenceIDFilterValues field
+	// of the response. Used only in NTPv5.
+	RequestReferenceID ReferenceIDRequest
 
 	// RequestSupportedVersions indicates whether to request which versions of
 	// the NTP protocol are supported by the server in its response. Used only
@@ -198,10 +199,6 @@ type QueryOptions struct {
 	// the NTPv5 query. Used in conjunction with the ServerCookie field. Used
 	// only in NTPv5.
 	RequestInterleavedMode bool
-
-	// ServerCookie contains the server cookie returned by a prior server
-	// response when operating in interleaved mode. Used only in NTPv5.
-	ServerCookie uint64
 
 	// Dialer is a callback used to override the default UDP network dialer.
 	// The localAddress is directly copied from the LocalAddress field

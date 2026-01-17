@@ -13,9 +13,17 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
+	"errors"
 	"math"
 	"net"
 	"time"
+)
+
+var (
+	ErrInvalidDraftID            = errors.New("invalid draft ID value in response")
+	ErrInvalidExtensionField     = errors.New("invalid extension field in response")
+	ErrInvalidReferenceRequest   = errors.New("invalid reference ID request")
+	ErrUnexpectedCorrectionField = errors.New("unexpected correction extension field in response")
 )
 
 // Timescale represents the time reference system used by an NTPv5 server.
@@ -281,6 +289,12 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	if m.getMode() != responseMode {
 		return nil, ErrInvalidMode
 	}
+	if m.TransmitTime == timestamp(0) {
+		return nil, ErrInvalidTransmitTime
+	}
+	if m.ReceiveTime > m.TransmitTime {
+		return nil, ErrServerTickedBackwards
+	}
 	if m.getVersion() != 5 {
 		return nil, ErrInvalidProtocolVersion
 	}
@@ -482,14 +496,14 @@ func buildV5Request(opt *QueryOptions, clientCookie uint64) (*bytes.Buffer, erro
 	// finalized.
 	writeExtDraftID(buf)
 
-	if opt.ReferenceIDRequest.ChunkSize > 0 {
-		request := opt.ReferenceIDRequest
+	if opt.RequestReferenceID.ChunkSize > 0 {
+		request := opt.RequestReferenceID
 		if request.ChunkOffset+request.ChunkSize > 512 ||
 			request.ChunkOffset%4 != 0 ||
 			request.ChunkSize%4 != 0 {
 			return nil, ErrInvalidReferenceRequest
 		}
-		writeExtRefIDRequest(buf, opt.ReferenceIDRequest)
+		writeExtRefIDRequest(buf, opt.RequestReferenceID)
 	}
 
 	if opt.RequestSupportedVersions {

@@ -118,8 +118,8 @@ func TestOnlineAuthenticatedQuery(t *testing.T) {
 			}
 			r, err := QueryWithOptions(host, opt)
 			if c.ExpectedErr == errAuthFail {
-				// With old NTP servers, failed authentication leads to Crypto-NAK
-				// (ErrAuthFailed). With modern NTP servers, it leads to an I/O
+				// With old NTP servers, failed authentication leads to
+				// Crypto-NAK. With modern NTP servers, it leads to an I/O
 				// timeout error.
 				if err != ErrAuthFailed && !strings.Contains(err.Error(), "timeout") {
 					t.Errorf("case %d: expected error [%v], got error [%v]\n", i, c.ExpectedErr, err)
