@@ -20,11 +20,12 @@ import (
 
 func logResponseV5(t *testing.T, r *Response) {
 	now := time.Now()
+	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
+	t.Logf("[%s]         RTT: %s", host, r.RTT)
 	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
 	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
 	t.Logf("[%s]    XmitTime: %s", host, fmtTime(r.Time))
-	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
 	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
@@ -36,7 +37,6 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]  MonoOffset: %s", host, r.MonotonicOffset)
 	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
 	t.Logf("[%s]   Supported: %v", host, r.SupportedVersions)
-	t.Logf("[%s]         RTT: %s", host, r.RTT)
 	t.Logf("[%s]        Poll: %s", host, r.Poll)
 	t.Logf("[%s]  CorrDelay0: %s", host, r.Correction.OriginDelay)
 	t.Logf("[%s]   CorrPath0: 0x%08x", host, r.Correction.OriginPathID)

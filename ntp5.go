@@ -258,12 +258,20 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	recvBuf = recvBuf[:n]
 
 	// Keep track of the time the response message was received.
 	clientRecvTime := opt.GetSystemTime()
 
+	// Allow package extensions to process the response message.
+	for i := len(opt.Extensions) - 1; i >= 0; i-- {
+		err = opt.Extensions[i].ProcessResponse(recvBuf)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Parse the response message.
-	recvBuf = recvBuf[:n]
 	m, err := parseV5Response(recvBuf)
 	if err != nil {
 		return nil, err
@@ -280,29 +288,22 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, ErrServerResponseMismatch
 	}
 
-	// Prepare the response struct.
-	r := &Response{
-		Version: 5,
-	}
-
-	// Check for an authentication NAK.
-	if m.Flags&flagAuthNAK != 0 {
-		r.authErr = ErrAuthNAK
-	}
-
-	// Convert timestamps.
+	// Convert timestamps to times.
 	serverRecvTime := timestamp(m.ReceiveTime).Time(m.Era)
 	serverXmitTime := timestamp(m.TransmitTime).Time(m.Era)
 
-	// Start filling in response fields.
-	r.Time = serverXmitTime
-	r.Precision = toInterval(m.Precision)
-	r.Stratum = m.Stratum
-	r.Leap = m.getLeap()
-	r.Poll = toInterval(m.Poll)
-	r.Timescale = Timescale(m.Timescale)
-	r.Era = m.Era
-	r.ServerCookie = m.ServerCookie
+	// Prepare the response struct.
+	r := &Response{
+		Time:         serverXmitTime,
+		Precision:    toInterval(m.Precision),
+		Version:      5,
+		Stratum:      m.Stratum,
+		Timescale:    Timescale(m.Timescale),
+		Era:          m.Era,
+		Leap:         m.getLeap(),
+		Poll:         toInterval(m.Poll),
+		ServerCookie: m.ServerCookie,
+	}
 
 	// Determine response flags.
 	if m.Flags&flagSynchronized != 0 {
@@ -312,35 +313,23 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		r.Flags |= FlagInterleaved
 	}
 
-	// Assign brief timestamp and correction variables for readability (will
-	// be optimized away).
+	// Check for an authentication NAK.
+	if m.Flags&flagAuthNAK != 0 {
+		r.authErr = ErrAuthNAK
+	}
+
+	// Assign brief timestamp variables for readability (will be optimized
+	// away).
 	t1 := clientXmitTime
 	t2 := serverRecvTime
 	t3 := serverXmitTime
 	t4 := clientRecvTime
-	c0 := r.Correction.OriginDelay
-	c1 := r.Correction.ReturnDelay
-
-	// Handle unrepresentable or negative delay corrections by ignoring them.
-	validCorrection := true
-	if c0 == DelayUnrepresentable || c1 == DelayUnrepresentable || c0 < 0 || c1 < 0 {
-		validCorrection = false
-	}
 
 	// Calculate the uncorrected clock offset.
 	r.ClockOffset = (t2.Sub(t1) + t3.Sub(t4)) / 2
 
 	// Calculate the uncorrected round-trip time.
 	r.RTT = max(t4.Sub(t1)-t3.Sub(t2), 0)
-
-	// If valid correction values are present, adjust the offset and RTT.
-	if validCorrection {
-		rtt := r.RTT - time.Duration(float64(c0+c1)*(1.0-maxFrequencyError))
-		if rtt >= 0 {
-			r.RTT = rtt
-			r.ClockOffset += (c1 - c0) / 2
-		}
-	}
 
 	// Calculate root dispersion and distance.
 	r.RootDelay = m.RootDelay.Duration()
@@ -399,6 +388,15 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			r.Correction.OriginPathID = binary.BigEndian.Uint16(body[8:10])
 			r.Correction.ReturnDelay = timeCorrectionV5(binary.BigEndian.Uint64(body[12:20])).Duration()
 			r.Correction.ReturnPathID = binary.BigEndian.Uint16(body[20:22])
+			c0 := r.Correction.OriginDelay
+			c1 := r.Correction.ReturnDelay
+			if c0 >= 0 && c1 >= 0 {
+				rtt := r.RTT - time.Duration(float64(c0+c1)*(1.0-maxFrequencyError))
+				if rtt >= 0 {
+					r.RTT = rtt
+					r.ClockOffset += (c1 - c0) / 2
+				}
+			}
 
 		case extRefTimestamp:
 			if len(body) != 8 {
@@ -433,14 +431,6 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 		offset += paddedLen(xlen)
 		curr = recvBuf[offset:]
-	}
-
-	// Allow package extensions to process the response.
-	for i := len(opt.Extensions) - 1; i >= 0; i-- {
-		err = opt.Extensions[i].ProcessResponse(recvBuf)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return r, r.authErr

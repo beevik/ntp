@@ -390,7 +390,7 @@ type TimescaleOffset struct {
 // correction value (i.e., OriginDelay or ReturnDelay) is not representable.
 // This occurs when a correction exceeds the maximum value representable by
 // NTP's correction timestamp format.
-var DelayUnrepresentable = time.Duration(math.MaxInt64)
+var DelayUnrepresentable = time.Duration(math.MinInt64)
 
 // The Correction struct contains delay correction information provided by
 // network switches and routers along the path between the client and the
