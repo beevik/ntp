@@ -38,10 +38,7 @@ func logResponseV5(t *testing.T, r *Response) {
 	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
 	t.Logf("[%s]   Supported: %v", host, r.SupportedVersions)
 	t.Logf("[%s]        Poll: %s", host, r.Poll)
-	t.Logf("[%s]  CorrDelay0: %s", host, r.Correction.OriginDelay)
-	t.Logf("[%s]   CorrPath0: 0x%08x", host, r.Correction.OriginPathID)
-	t.Logf("[%s]  CorrDelay1: %s", host, r.Correction.ReturnDelay)
-	t.Logf("[%s]   CorrPath1: 0x%08x", host, r.Correction.ReturnPathID)
+	t.Logf("[%s]  Correction: %s", host, fmtCorrection(r.Correction))
 	t.Logf("[%s]   Precision: %s", host, r.Precision)
 	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay)
 	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
@@ -102,6 +99,18 @@ func fmtTimescaleOffsets(offsets []TimescaleOffset) string {
 	return s.String()
 }
 
+func fmtCorrection(c Correction) string {
+	if c.OriginDelay < 0 || c.ReturnDelay < 0 {
+		return "<invalid>"
+	}
+	if c.OriginPathID == 0 && c.ReturnPathID == 0 {
+		return "<none>"
+	}
+	return fmt.Sprintf("%s (0x%04x) / %s (0x%04x)",
+		c.OriginDelay, c.OriginPathID,
+		c.ReturnDelay, c.ReturnPathID)
+}
+
 func fmtCookie(c uint64) string {
 	if c == 0 {
 		return "<zero>"
@@ -116,11 +125,7 @@ func TestOnlineV5Query(t *testing.T) {
 	}
 
 	opt := QueryOptions{
-		Version: 5,
-		ReferenceIDRequest: ReferenceIDRequest{
-			ChunkOffset: 0,
-			ChunkSize:   uint16(512),
-		},
+		Version:                  5,
 		Timescale:                TimescaleUTC,
 		AdditionalTimescales:     []Timescale{TimescaleTAI, TimescaleUT1, TimescaleUTCSmeared},
 		RequestSupportedVersions: true,
@@ -128,6 +133,10 @@ func TestOnlineV5Query(t *testing.T) {
 		RequestReferenceTime:     true,
 		RequestMonotonic:         true,
 		RequestInterleavedMode:   true,
+		ReferenceIDRequest: ReferenceIDRequest{
+			ChunkOffset: 0,
+			ChunkSize:   uint16(512),
+		},
 	}
 
 	// Force an immediate timeout.
