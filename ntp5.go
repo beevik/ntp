@@ -276,8 +276,8 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Prepare the response struct.
 	r := &Response{
 		ClockOffset:    offset(t1, t2, t3, t4),
-		Time:           serverXmitTime,
 		RTT:            rtt(t1, t2, t3, t4),
+		Timestamps:     ProtocolTimestamps{t1, t2, t3, t4},
 		Precision:      toInterval(m.Precision),
 		Version:        5,
 		Stratum:        m.Stratum,
@@ -290,6 +290,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		Poll:           toInterval(m.Poll),
 		Flags:          0,
 		ServerCookie:   m.ServerCookie,
+		Time:           serverXmitTime,
 	}
 
 	// Calculate root distance.

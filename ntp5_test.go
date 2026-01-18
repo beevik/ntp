@@ -19,14 +19,17 @@ import (
 )
 
 func logResponseV5(t *testing.T, r *Response) {
-	now := time.Now()
+	now := time.Now().Local()
 	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
 	t.Logf("[%s]         RTT: %s", host, r.RTT)
 	t.Logf("[%s]  Correction: %s", host, fmtCorrection(r.Correction))
 	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
 	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
-	t.Logf("[%s]    XmitTime: %s", host, fmtTime(r.Time))
+	t.Logf("[%s]  ClientXmit: %s", host, fmtTime(r.Timestamps.ClientXmit))
+	t.Logf("[%s]  ServerRecv: %s", host, fmtTime(r.Timestamps.ServerRecv))
+	t.Logf("[%s]  ServerXmit: %s", host, fmtTime(r.Timestamps.ServerXmit))
+	t.Logf("[%s]  ClientRecv: %s", host, fmtTime(r.Timestamps.ClientRecv))
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
 	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
@@ -352,29 +355,6 @@ func TestOfflineV5DraftIDExtension(t *testing.T) {
 	assert.True(t, bytes.Contains(data[4:], []byte(draftID)), "Extension should contain draft ID string")
 }
 
-func TestOfflineV5BuildRequest(t *testing.T) {
-	opt := &QueryOptions{
-		Version:   5,
-		Timescale: TimescaleUTC,
-	}
-
-	clientCookie := uint64(0x1234567890abcdef)
-	buf, err := buildV5Request(opt, clientCookie)
-	require.NoError(t, err)
-	require.NotNil(t, buf)
-	require.NotZero(t, clientCookie)
-
-	data := buf.Bytes()
-	require.GreaterOrEqual(t, len(data), msgSize)
-
-	m, err := parseV5Response(data)
-	require.NoError(t, err)
-	assert.Equal(t, 5, m.getVersion())
-	assert.Equal(t, requestMode, m.getMode())
-	assert.Equal(t, clientCookie, m.ClientCookie)
-	assert.Equal(t, uint8(TimescaleUTC), m.Timescale)
-}
-
 func TestOfflineV5ParseMsg(t *testing.T) {
 	m := &messageV5{
 		Stratum:      2,
@@ -385,13 +365,13 @@ func TestOfflineV5ParseMsg(t *testing.T) {
 		Timescale:    0,
 		Era:          0,
 		Flags:        flagSynchronized,
-		ServerCookie: 0x1234567890ABCDEF,
+		ServerCookie: 0x1234567890abcdef,
 		ClientCookie: 0xFEDCBA0987654321,
 		ReceiveTime:  1 << 32, // 1 second
 		TransmitTime: 2 << 32, // 2 seconds
 	}
 	m.setVersion(5)
-	m.setMode(requestMode)
+	m.setMode(responseMode)
 	m.setLeap(LeapNoWarning)
 
 	buf := new(bytes.Buffer)
@@ -412,7 +392,7 @@ func TestOfflineV5ParseMsg(t *testing.T) {
 	parsed, err := parseV5Response(buf.Bytes())
 	require.NoError(t, err)
 	assert.Equal(t, 5, parsed.getVersion())
-	assert.Equal(t, requestMode, parsed.getMode())
+	assert.Equal(t, responseMode, parsed.getMode())
 	assert.Equal(t, LeapNoWarning, parsed.getLeap())
 	assert.Equal(t, uint8(2), parsed.Stratum)
 	assert.Equal(t, int8(6), parsed.Poll)
@@ -424,35 +404,70 @@ func TestOfflineV5ParseMsg(t *testing.T) {
 	assert.True(t, parsed.Flags&flagSynchronized != 0)
 }
 
-// mockV5Server creates a mock connection that echoes the client cookie.
-type mockV5Server struct {
+func TestOfflineV5QueryMock(t *testing.T) {
+	conn := &mockV5Conn{
+		stratum:      2,
+		serverCookie: 0x1234567890abcdef,
+	}
+
+	opt := QueryOptions{
+		Version:       5,
+		Timescale:     TimescaleTAI,
+		GetSystemTime: time.Now,
+		Dialer: func(network, address string) (net.Conn, error) {
+			return conn, nil
+		},
+	}
+
+	r, err := QueryWithOptions("mock.example.com", opt)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	assert.Equal(t, 5, r.Version)
+	assert.Equal(t, conn.stratum, r.Stratum)
+	assert.Equal(t, LeapNoWarning, r.Leap)
+	assert.True(t, r.Flags&flagSynchronized != 0)
+	assert.False(t, r.Flags&flagInterleaved != 0)
+	assert.False(t, r.Flags&flagAuthNAK != 0)
+	assert.Equal(t, TimescaleTAI, r.Timescale)
+	assert.Equal(t, uint8(0), r.Era)
+	assert.Equal(t, conn.serverCookie, r.ServerCookie)
+	assert.True(t, conn.closed)
+}
+
+// mockV5Conn is a mock connection used to simulate a simple NTP exchange.
+type mockV5Conn struct {
 	stratum      uint8
 	serverCookie uint64
 	request      []byte
 	closed       bool
 }
 
-func (s *mockV5Server) Read(b []byte) (n int, err error) {
-	if len(s.request) < msgSize {
+func (c *mockV5Conn) Read(b []byte) (n int, err error) {
+	if c.closed {
+		return 0, fmt.Errorf("read from closed connection")
+	}
+	if len(c.request) < msgSize {
 		return 0, ErrInvalidTime
 	}
-	requestMsg, _ := parseV5Response(s.request)
 
 	now := time.Now()
 	serverRecv := toTimestamp(now)
-	serverXmit := toTimestamp(now.Add(1 * time.Millisecond))
+	serverXmit := toTimestamp(now.Add(10 * time.Millisecond))
+
+	timescale := c.request[12]
+	clientCookie := binary.BigEndian.Uint64(c.request[24:32])
 
 	responseMsg := &messageV5{
-		Stratum:      s.stratum,
+		Stratum:      c.stratum,
 		Poll:         6,
 		Precision:    -20,
 		RootDelay:    toTimeShortV5(50 * time.Millisecond),
 		RootDisp:     toTimeShortV5(10 * time.Millisecond),
-		Timescale:    0,
+		Timescale:    timescale,
 		Era:          0,
 		Flags:        flagSynchronized,
-		ServerCookie: s.serverCookie,
-		ClientCookie: requestMsg.ClientCookie, // Echo the client cookie
+		ServerCookie: c.serverCookie,
+		ClientCookie: clientCookie,
 		ReceiveTime:  serverRecv,
 		TransmitTime: serverXmit,
 	}
@@ -479,45 +494,23 @@ func (s *mockV5Server) Read(b []byte) (n int, err error) {
 	return buf.Len(), nil
 }
 
-func (s *mockV5Server) Write(b []byte) (n int, err error) {
-	s.request = make([]byte, len(b))
-	copy(s.request, b)
+func (c *mockV5Conn) Write(b []byte) (n int, err error) {
+	if c.closed {
+		return 0, fmt.Errorf("write to closed connection")
+	}
+
+	c.request = make([]byte, len(b))
+	copy(c.request, b)
 	return len(b), nil
 }
 
-func (s *mockV5Server) Close() error {
-	s.closed = true
+func (c *mockV5Conn) Close() error {
+	c.closed = true
 	return nil
 }
 
-func (s *mockV5Server) LocalAddr() net.Addr                { return nil }
-func (s *mockV5Server) RemoteAddr() net.Addr               { return nil }
-func (s *mockV5Server) SetDeadline(t time.Time) error      { return nil }
-func (s *mockV5Server) SetReadDeadline(t time.Time) error  { return nil }
-func (s *mockV5Server) SetWriteDeadline(t time.Time) error { return nil }
-
-func TestOfflineV5QueryMock(t *testing.T) {
-	mockServer := &mockV5Server{
-		stratum:      2,
-		serverCookie: 0x1234567890ABCDEF,
-	}
-
-	opt := &QueryOptions{
-		Version:       5,
-		Timeout:       5 * time.Second,
-		GetSystemTime: time.Now,
-	}
-
-	resp, err := queryV5(mockServer, opt)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, 5, resp.Version)
-	assert.Equal(t, uint8(2), resp.Stratum)
-	assert.Equal(t, LeapNoWarning, resp.Leap)
-	assert.True(t, resp.Flags&flagSynchronized != 0)
-	assert.False(t, resp.Flags&flagInterleaved != 0)
-	assert.Equal(t, TimescaleUTC, resp.Timescale)
-	assert.Equal(t, uint8(0), resp.Era)
-	assert.Equal(t, uint64(0x1234567890ABCDEF), resp.ServerCookie)
-	assert.False(t, mockServer.closed)
-}
+func (c *mockV5Conn) LocalAddr() net.Addr                { return nil }
+func (c *mockV5Conn) RemoteAddr() net.Addr               { return nil }
+func (c *mockV5Conn) SetDeadline(t time.Time) error      { return nil }
+func (c *mockV5Conn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *mockV5Conn) SetWriteDeadline(t time.Time) error { return nil }

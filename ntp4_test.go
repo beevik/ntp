@@ -15,13 +15,16 @@ import (
 )
 
 func logResponseV4(t *testing.T, r *Response) {
-	now := time.Now()
+	now := time.Now().Local()
 	t.Logf("[%s]     Version: %d", host, r.Version)
 	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
 	t.Logf("[%s]         RTT: %s", host, r.RTT)
 	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
 	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
-	t.Logf("[%s]    XmitTime: %s", host, fmtTime(r.Time))
+	t.Logf("[%s]  ClientXmit: %s", host, fmtTime(r.Timestamps.ClientXmit))
+	t.Logf("[%s]  ServerRecv: %s", host, fmtTime(r.Timestamps.ServerRecv))
+	t.Logf("[%s]  ServerXmit: %s", host, fmtTime(r.Timestamps.ServerXmit))
+	t.Logf("[%s]  ClientRecv: %s", host, fmtTime(r.Timestamps.ClientRecv))
 	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
 	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
 	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))

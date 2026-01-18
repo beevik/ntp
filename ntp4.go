@@ -173,8 +173,8 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Compose the response struct.
 	r := &Response{
 		ClockOffset:    offset(t1, t2, t3, t4),
-		Time:           m.TransmitTime.TimeV4(),
 		RTT:            rtt(t1, t2, t3, t4),
+		Timestamps:     ProtocolTimestamps{t1, t2, t3, t4},
 		Precision:      toInterval(m.Precision),
 		Version:        m.getVersion(),
 		Stratum:        m.Stratum,
@@ -188,6 +188,7 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		MinError:       minError(t1, t2, t3, t4),
 		Poll:           toInterval(m.Poll),
 		Flags:          0,
+		Time:           m.TransmitTime.TimeV4(),
 	}
 
 	// Calculate root distance.

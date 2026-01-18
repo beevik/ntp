@@ -242,14 +242,13 @@ type Response struct {
 	// clock.
 	ClockOffset time.Duration
 
-	// Time is the time the server transmitted this response, measured using
-	// its own clock. You should not use this value for time synchronization
-	// purposes. Add ClockOffset to your system clock instead.
-	Time time.Time
-
 	// RTT is the measured round-trip-time delay estimate between the client
 	// and the server.
 	RTT time.Duration
+
+	// Timestamps contains the four NTP protocol timestamps used to calculate
+	// ClockOffset and RTT.
+	Timestamps ProtocolTimestamps
 
 	// Precision is the reported precision of the server's clock.
 	Precision time.Duration
@@ -368,7 +367,34 @@ type Response struct {
 	// Used only in NTPv5.
 	ServerCookie uint64
 
+	// Time is the time the server transmitted this response, measured using
+	// its own clock. You should not use this value for time synchronization
+	// purposes. Add ClockOffset to your system clock instead.
+	//
+	// DEPRECATED. Use Timestamps.ServerXmit instead.
+	Time time.Time
+
 	authErr error
+}
+
+// ProtocolTimestamps contains the four timestamps used by the NTP protocol to
+// calculate clock offset and round-trip delay.
+type ProtocolTimestamps struct {
+	// ClientXmit is the timestamp recorded by the client when it transmitted
+	// the request.
+	ClientXmit time.Time
+
+	// ServerRecv is the timestamp recorded by the server when it received the
+	// request.
+	ServerRecv time.Time
+
+	// ServerXmit is the timestamp recorded by the server when it transmitted
+	// the response.
+	ServerXmit time.Time
+
+	// ClientRecv is the timestamp recorded by the client when it received the
+	// response.
+	ClientRecv time.Time
 }
 
 // The TimescaleOffset struct contains a timescale identifier and its
@@ -558,7 +584,7 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 		opt.Port = defaultPort
 	}
 	if opt.GetSystemTime == nil {
-		opt.GetSystemTime = time.Now
+		opt.GetSystemTime = func() time.Time { return time.Now().UTC() }
 	}
 	if opt.Dial != nil {
 		// wrapper for the deprecated Dial callback.
