@@ -341,12 +341,8 @@ type Response struct {
 	// the current month's last minute.
 	Leap LeapIndicator
 
-	// MinError is a lower bound on the error between the client and server
-	// clocks. When the client and server are not synchronized to the same
-	// clock, the reported timestamps may appear to violate the principle of
-	// causality. In other words, the NTP server's response may indicate
-	// that a message was received before it was sent. In such cases, the
-	// minimum error may be useful.
+	// MinError is a lower bound on the "causality violation" between the
+	// client and server clocks when they are not yet synchronized.
 	MinError time.Duration
 
 	// KissCode is a 4-character string describing the reason for a "kiss of
@@ -754,11 +750,32 @@ func rtt(t1, t2, t3, t4 time.Time) time.Duration {
 	return max(t4.Sub(t1)-t3.Sub(t2), 0)
 }
 
-// minError calculates a lower bound on the error between the client and
-// server clocks using the four NTP timestamps.
+// minError calculates a lower bound on the "causality violation" detected
+// between the client and server clocks when they are not yet synchronized.
 func minError(t1, t2, t3, t4 time.Time) time.Duration {
-	if t2.Before(t1) || t4.Before(t3) {
-		return max(t1.Sub(t2), t3.Sub(t4))
+	// rtt    = (t4 - t1) - (t3 - t2)
+	// offset = ((t2 - t1) + (t3 - t4)) / 2
+	//
+	// t2 - t1 = rtt/2 + offset
+	// t4 - t3 = rtt/2 - offset
+	//
+	// If the client and server clocks are synchronized, then the offset
+	// should be roughly zero and the timestamp differences should be roughly
+	// equal to the one-way trip time (rtt/2). If the clocks are not
+	// synchronized, then the magnitude of the offset relative to the one-way
+	// trip time provides a lower bound on the "causality violation" between
+	// the two clocks.
+
+	offset := offset(t1, t2, t3, t4)
+	if offset < 0 {
+		offset = -offset
+	}
+
+	rtt := rtt(t1, t2, t3, t4)
+	ott := rtt / 2
+
+	if offset > ott {
+		return offset - ott
 	}
 	return 0
 }

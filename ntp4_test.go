@@ -226,68 +226,6 @@ func TestOfflineV4CustomDialerDeprecated(t *testing.T) {
 	assert.True(t, dialerCalled)
 }
 
-func TestOfflineV4MinError(t *testing.T) {
-	start := time.Now()
-
-	for org := 1 * time.Second; org <= 10*time.Second; org += time.Second {
-		for rec := 1 * time.Second; rec <= 10*time.Second; rec += time.Second {
-			for xmt := rec; xmt <= 10*time.Second; xmt += time.Second {
-				for dst := org; dst <= 10*time.Second; dst += time.Second {
-					t1 := start.Add(org)
-					t2 := start.Add(rec)
-					t3 := start.Add(xmt)
-					t4 := start.Add(dst)
-
-					var error0, error1 time.Duration
-					if org >= rec {
-						error0 = org - rec
-					}
-					if xmt >= dst {
-						error1 = xmt - dst
-					}
-
-					var mex time.Duration
-					mex = max(error0, error1)
-
-					m := minError(t1, t2, t3, t4)
-					assert.Equal(t, mex, m)
-				}
-			}
-		}
-	}
-}
-
-func TestOfflineV4OffsetCalculation(t *testing.T) {
-	now := time.Now()
-	t1 := toTimestamp(now)
-	t2 := toTimestamp(now.Add(20 * time.Second))
-	t3 := toTimestamp(now.Add(21 * time.Second))
-	t4 := toTimestamp(now.Add(5 * time.Second))
-
-	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
-	// ((119 - 99) + (121 - 104)) / 2
-	// (20 +  17) / 2
-	// 37 / 2 = 18
-	expectedOffset := 18 * time.Second
-	offset := offset(t1.TimeV4(), t2.TimeV4(), t3.TimeV4(), t4.TimeV4())
-	assert.Equal(t, expectedOffset, offset)
-}
-
-func TestOfflineV4OffsetCalculationNegative(t *testing.T) {
-	now := time.Now()
-	t1 := toTimestamp(now.Add(101 * time.Second))
-	t2 := toTimestamp(now.Add(102 * time.Second))
-	t3 := toTimestamp(now.Add(103 * time.Second))
-	t4 := toTimestamp(now.Add(105 * time.Second))
-
-	// expectedOffset := ((T2 - T1) + (T3 - T4)) / 2
-	// ((102 - 101) + (103 - 105)) / 2
-	// (1 + -2) / 2 = -1 / 2
-	expectedOffset := -time.Second / 2
-	offset := offset(t1.TimeV4(), t2.TimeV4(), t3.TimeV4(), t4.TimeV4())
-	assert.Equal(t, expectedOffset, offset)
-}
-
 func TestOfflineV4OffsetRollover(t *testing.T) {
 	cases := []struct {
 		clientTime string

@@ -175,6 +175,168 @@ func TestOfflineFixHostPort(t *testing.T) {
 	}
 }
 
+func TestOfflineMeasurements(t *testing.T) {
+	const format = "5.000000"
+	base := time.Date(2026, 0, 0, 0, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		t1, t2, t3, t4 time.Time
+		offset         time.Duration
+		rtt            time.Duration
+		minError       time.Duration
+	}{
+		{
+			base,
+			base.Add(1 * time.Millisecond),
+			base.Add(1 * time.Millisecond),
+			base.Add(1 * time.Millisecond),
+			500 * time.Microsecond,
+			1 * time.Millisecond,
+			0,
+		},
+		{
+			base,
+			base.Add(1 * time.Millisecond),
+			base.Add(1 * time.Millisecond),
+			base.Add(10 * time.Millisecond),
+			-4 * time.Millisecond,
+			10 * time.Millisecond,
+			0,
+		},
+		{
+			base,
+			base.Add(1 * time.Millisecond),
+			base.Add(1 * time.Millisecond),
+			base.Add(25 * time.Microsecond),
+			987*time.Microsecond + 500*time.Nanosecond,
+			25 * time.Microsecond,
+			975 * time.Microsecond,
+		},
+		{
+			base,
+			base.Add(1 * time.Millisecond),
+			base.Add(1 * time.Millisecond),
+			base.Add(2 * time.Microsecond),
+			999 * time.Microsecond,
+			2 * time.Microsecond,
+			998 * time.Microsecond,
+		},
+		{
+			base,
+			base.Add(25 * time.Millisecond),
+			base.Add(25 * time.Millisecond),
+			base.Add(1 * time.Millisecond),
+			24*time.Millisecond + 500*time.Microsecond,
+			1 * time.Millisecond,
+			24 * time.Millisecond,
+		},
+		{
+			base.Add(78 * time.Millisecond),
+			base.Add(38 * time.Millisecond),
+			base.Add(38 * time.Millisecond),
+			base.Add(94 * time.Millisecond),
+			-48 * time.Millisecond,
+			16 * time.Millisecond,
+			40 * time.Millisecond,
+		},
+		{
+			base.Add(78 * time.Millisecond),
+			base.Add(38 * time.Millisecond),
+			base.Add(39 * time.Millisecond),
+			base.Add(94 * time.Millisecond),
+			-47*time.Millisecond - 500*time.Microsecond,
+			15 * time.Millisecond,
+			40 * time.Millisecond,
+		},
+		{
+			base.Add(78 * time.Millisecond),
+			base.Add(38 * time.Millisecond),
+			base.Add(39 * time.Millisecond),
+			base.Add(95 * time.Millisecond),
+			-48 * time.Millisecond,
+			16 * time.Millisecond,
+			40 * time.Millisecond,
+		},
+		{
+			base.Add(18 * time.Millisecond),
+			base.Add(38 * time.Millisecond),
+			base.Add(39 * time.Millisecond),
+			base.Add(35 * time.Millisecond),
+			12 * time.Millisecond,
+			16 * time.Millisecond,
+			4 * time.Millisecond,
+		},
+		{
+			base.Add(10 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			10 * time.Millisecond,
+			20 * time.Millisecond,
+			0,
+		},
+		{
+			base.Add(10 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(20 * time.Millisecond),
+			15 * time.Millisecond,
+			10 * time.Millisecond,
+			10 * time.Millisecond,
+		},
+		{
+			base.Add(10 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(40 * time.Millisecond),
+			5 * time.Millisecond,
+			30 * time.Millisecond,
+			0,
+		},
+		{
+			base.Add(10 * time.Millisecond),
+			base.Add(30 * time.Millisecond),
+			base.Add(32 * time.Millisecond),
+			base.Add(40 * time.Millisecond),
+			6 * time.Millisecond,
+			28 * time.Millisecond,
+			0,
+		},
+	}
+
+	for _, c := range cases {
+		offset := offset(c.t1, c.t2, c.t3, c.t4)
+		if offset != c.offset {
+			t.Errorf("offset(%s, %s, %s, %s) = %s; want %s",
+				c.t1.Format(format),
+				c.t2.Format(format),
+				c.t3.Format(format),
+				c.t4.Format(format),
+				offset, c.offset)
+		}
+
+		rtt := rtt(c.t1, c.t2, c.t3, c.t4)
+		if rtt != c.rtt {
+			t.Errorf("minError(%s, %s, %s, %s) = %s; want %s",
+				c.t1.Format(format),
+				c.t2.Format(format),
+				c.t3.Format(format),
+				c.t4.Format(format),
+				rtt, c.rtt)
+		}
+
+		m := minError(c.t1, c.t2, c.t3, c.t4)
+		if m != c.minError {
+			t.Errorf("minError(%s, %s, %s, %s) = %s; want %s",
+				c.t1.Format(format),
+				c.t2.Format(format),
+				c.t3.Format(format),
+				c.t4.Format(format),
+				m, c.minError)
+		}
+	}
+}
+
 func TestOfflineKissCode(t *testing.T) {
 	codes := []struct {
 		id  uint32
