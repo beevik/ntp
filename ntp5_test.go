@@ -7,104 +7,14 @@ package ntp
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func logResponseV5(t *testing.T, r *Response) {
-	now := time.Now().Local()
-	t.Logf("[%s]     Version: %d", host, r.Version)
-	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
-	t.Logf("[%s]         RTT: %s", host, r.RTT)
-	t.Logf("[%s]  Correction: %s", host, fmtCorrection(r.Correction))
-	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
-	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
-	t.Logf("[%s]  ClientXmit: %s", host, fmtTime(r.Timestamps.ClientXmit))
-	t.Logf("[%s]  ServerRecv: %s", host, fmtTime(r.Timestamps.ServerRecv))
-	t.Logf("[%s]  ServerXmit: %s", host, fmtTime(r.Timestamps.ServerXmit))
-	t.Logf("[%s]  ClientRecv: %s", host, fmtTime(r.Timestamps.ClientRecv))
-	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
-	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
-	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
-	t.Logf("[%s]         Era: %d", host, r.Era)
-	t.Logf("[%s]   Timescale: %s", host, fmtTimescale(r.Timescale))
-	t.Logf("[%s]     Offsets: %s", host, fmtTimescaleOffsets(r.TimescaleOffsets))
-	t.Logf("[%s]  RefIDBytes: %s", host, fmtRefIDFilter(r.ReferenceIDFilterValues))
-	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
-	t.Logf("[%s]  MonoOffset: %s", host, r.MonotonicOffset)
-	t.Logf("[%s]   MonoEpoch: %s", host, fmtEpoch(r.MonotonicEpochID))
-	t.Logf("[%s]   Supported: %v", host, r.SupportedVersions)
-	t.Logf("[%s]        Poll: %s", host, r.Poll)
-	t.Logf("[%s]   Precision: %s", host, r.Precision)
-	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay)
-	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
-	t.Logf("[%s]    RootDist: %s", host, r.RootDistance)
-	t.Logf("[%s]    MinError: %s", host, r.MinError)
-	t.Logf("[%s]   SrvCookie: %s", host, fmtCookie(r.ServerCookie))
-}
-
-func fmtRefIDFilter(filter []byte) string {
-	if filter == nil {
-		return "<nil>"
-	}
-	l := min(len(filter), 24)
-	return "0x" + hex.EncodeToString(filter[:l]) + "..."
-}
-
-func fmtEpoch(epoch uint32) string {
-	if epoch == 0 {
-		return "<zero>"
-	}
-	return fmt.Sprintf("0x%08x", epoch)
-}
-
-func fmtTimescaleOffset(o TimescaleOffset) string {
-	return fmt.Sprintf("%s=%v", fmtTimescale(o.Timescale), o.Offset)
-}
-
-func fmtTimescaleOffsets(offsets []TimescaleOffset) string {
-	if offsets == nil {
-		return "<none>"
-	}
-
-	var s strings.Builder
-	s.WriteString("[")
-	for i, o := range offsets {
-		if i > 0 {
-			s.WriteString(", ")
-		}
-		s.WriteString(fmtTimescaleOffset(o))
-	}
-	s.WriteString("]")
-
-	return s.String()
-}
-
-func fmtCorrection(c Correction) string {
-	if c.OriginDelay < 0 || c.ReturnDelay < 0 {
-		return "<invalid>"
-	}
-	if c.OriginPathID == 0 && c.ReturnPathID == 0 {
-		return "<none>"
-	}
-	return fmt.Sprintf("%s (0x%04x) / %s (0x%04x)",
-		c.OriginDelay, c.OriginPathID,
-		c.ReturnDelay, c.ReturnPathID)
-}
-
-func fmtCookie(c uint64) string {
-	if c == 0 {
-		return "<zero>"
-	}
-	return fmt.Sprintf("0x%016x", c)
-}
 
 func TestOnlineV5Query(t *testing.T) {
 	if host == "localhost" {
@@ -133,7 +43,11 @@ func TestOnlineV5Query(t *testing.T) {
 		return
 	}
 	assertValid(t, r)
-	logResponseV5(t, r)
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "\n    Address: %s\n", host)
+	r.Log(&buf)
+	t.Log(buf.String())
 }
 
 func TestOfflineV5Time32Duration(t *testing.T) {

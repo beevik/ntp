@@ -5,7 +5,9 @@
 package ntp
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -13,33 +15,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
-
-func logResponseV4(t *testing.T, r *Response) {
-	now := time.Now().Local()
-	t.Logf("[%s]     Version: %d", host, r.Version)
-	t.Logf("[%s] ClockOffset: %s", host, r.ClockOffset)
-	t.Logf("[%s]         RTT: %s", host, r.RTT)
-	t.Logf("[%s]  SystemTime: %s", host, fmtTime(now))
-	t.Logf("[%s]   ~TrueTime: %s", host, fmtTime(now.Add(r.ClockOffset)))
-	t.Logf("[%s]  ClientXmit: %s", host, fmtTime(r.Timestamps.ClientXmit))
-	t.Logf("[%s]  ServerRecv: %s", host, fmtTime(r.Timestamps.ServerRecv))
-	t.Logf("[%s]  ServerXmit: %s", host, fmtTime(r.Timestamps.ServerXmit))
-	t.Logf("[%s]  ClientRecv: %s", host, fmtTime(r.Timestamps.ClientRecv))
-	t.Logf("[%s]     Stratum: %d", host, r.Stratum)
-	t.Logf("[%s]        Leap: %s", host, fmtLeapIndicator(r.Leap))
-	t.Logf("[%s]       Flags: %s", host, fmtResponseFlags(r.Flags))
-	t.Logf("[%s]         Era: %d", host, r.Era)
-	t.Logf("[%s]   Timescale: %s", host, fmtTimescale(r.Timescale))
-	t.Logf("[%s]       RefID: %s (0x%08x)", host, r.ReferenceString(), r.ReferenceID)
-	t.Logf("[%s]     RefTime: %s", host, fmtTime(r.ReferenceTime))
-	t.Logf("[%s]        Poll: %s", host, r.Poll)
-	t.Logf("[%s]   Precision: %s", host, r.Precision)
-	t.Logf("[%s]   RootDelay: %s", host, r.RootDelay)
-	t.Logf("[%s]    RootDisp: %s", host, r.RootDispersion)
-	t.Logf("[%s]    RootDist: %s", host, r.RootDistance)
-	t.Logf("[%s]    MinError: %s", host, r.MinError)
-	t.Logf("[%s]    KissCode: %s", host, fmtKissCode(r.KissCode))
-}
 
 func TestOnlineBadServerPort(t *testing.T) {
 	// Not NTP port.
@@ -54,7 +29,11 @@ func TestOnlineV3Query(t *testing.T) {
 		return
 	}
 	assertValid(t, r)
-	logResponseV4(t, r)
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "\n    Address: %s\n", host)
+	r.Log(&buf)
+	t.Log(buf.String())
 }
 
 func TestOnlineV4Query(t *testing.T) {
@@ -63,7 +42,11 @@ func TestOnlineV4Query(t *testing.T) {
 		return
 	}
 	assertValid(t, r)
-	logResponseV4(t, r)
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "\n    Address: %s\n", host)
+	r.Log(&buf)
+	t.Log(buf.String())
 }
 
 func TestOnlineV4QueryTimeout(t *testing.T) {

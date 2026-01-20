@@ -5,7 +5,6 @@
 package ntp
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -19,81 +18,13 @@ import (
 var host string = "0.beevik-ntp.pool.ntp.org"
 
 const (
-	refID      = 0xc0a80001
-	timeFormat = "Mon Jan _2 2006  15:04:05.00000000 (MST)"
+	refID = 0xc0a80001
 )
 
 func init() {
 	h := os.Getenv("NTP_HOST")
 	if h != "" {
 		host = h
-	}
-}
-
-func fmtKissCode(s string) string {
-	if s == "" {
-		return "<empty>"
-	}
-	return s
-}
-
-func fmtLeapIndicator(li LeapIndicator) string {
-	switch li {
-	case LeapNoWarning:
-		return "No Warning"
-	case LeapAddSecond:
-		return "Add Second"
-	case LeapDelSecond:
-		return "Delete Second"
-	default:
-		return "Unknown"
-	}
-}
-
-func fmtResponseFlags(flags ResponseFlags) string {
-	ftab := map[ResponseFlags]string{
-		FlagSynchronized: "Synchronized",
-		FlagInterleaved:  "Interleaved",
-	}
-
-	copy := flags
-	var s strings.Builder
-	s.WriteString("[")
-	for flags != 0 {
-		f := flags & -flags
-		if s.Len() > 1 {
-			s.WriteString(" ")
-		}
-		if ss, ok := ftab[f]; ok {
-			s.WriteString(ss)
-		} else {
-			s.WriteString("Unknown")
-		}
-		flags &= ^f
-	}
-	fmt.Fprintf(&s, "] (0x%08x)", uint32(copy))
-	return s.String()
-}
-
-func fmtTime(value time.Time) string {
-	if value.IsZero() {
-		return "<zero>"
-	}
-	return value.Format(timeFormat)
-}
-
-func fmtTimescale(ts Timescale) string {
-	switch ts {
-	case TimescaleUTC:
-		return "UTC"
-	case TimescaleTAI:
-		return "TAI"
-	case TimescaleUT1:
-		return "UT1"
-	case TimescaleUTCSmeared:
-		return "UTC(smeared)"
-	default:
-		return "Unknown"
 	}
 }
 

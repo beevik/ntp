@@ -14,8 +14,10 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"strconv"
@@ -57,6 +59,7 @@ const (
 
 	// Time constants
 	nanoPerSec = 1_000_000_000
+	timeFormat = "Mon Jan _2 2006  15:04:05.00000000 (MST)"
 
 	// Fixed-point constants (Q*.16, Q*.28, Q*.32)
 	mask16 = (1 << 16) - 1     // 0x0000ffff
@@ -456,6 +459,45 @@ const (
 // Valid only for NTPv3 and NTPv4.
 func (r *Response) IsKissOfDeath() bool {
 	return r.Version < 5 && r.Stratum == 0
+}
+
+// Log outputs a human-readable representation of the NTP response to the
+// provided io.Writer. Meant for debugging purposes.
+func (r *Response) Log(w io.Writer) {
+	now := time.Now().Local()
+	fmt.Fprintf(w, "    Version: %d\n", r.Version)
+	fmt.Fprintf(w, "ClockOffset: %s\n", r.ClockOffset)
+	fmt.Fprintf(w, "        RTT: %s\n", r.RTT)
+	fmt.Fprintf(w, " SystemTime: %s\n", fmtTime(now))
+	fmt.Fprintf(w, "  ~TrueTime: %s\n", fmtTime(now.Add(r.ClockOffset)))
+	fmt.Fprintf(w, " ClientXmit: %s\n", fmtTime(r.Timestamps.ClientXmit))
+	fmt.Fprintf(w, " ServerRecv: %s\n", fmtTime(r.Timestamps.ServerRecv))
+	fmt.Fprintf(w, " ServerXmit: %s\n", fmtTime(r.Timestamps.ServerXmit))
+	fmt.Fprintf(w, " ClientRecv: %s\n", fmtTime(r.Timestamps.ClientRecv))
+	fmt.Fprintf(w, "    Stratum: %d\n", r.Stratum)
+	fmt.Fprintf(w, "       Leap: %s\n", fmtLeap(r.Leap))
+	fmt.Fprintf(w, "      Flags: %s\n", fmtFlags(r.Flags))
+	fmt.Fprintf(w, "        Era: %d\n", r.Era)
+	fmt.Fprintf(w, "  Timescale: %s\n", fmtTimescale(r.Timescale))
+	fmt.Fprintf(w, "       Poll: %s\n", r.Poll)
+	fmt.Fprintf(w, "  Precision: %s\n", r.Precision)
+	fmt.Fprintf(w, "  RootDelay: %s\n", r.RootDelay)
+	fmt.Fprintf(w, "   RootDisp: %s\n", r.RootDispersion)
+	fmt.Fprintf(w, "   RootDist: %s\n", r.RootDistance)
+	fmt.Fprintf(w, "   MinError: %s\n", r.MinError)
+	fmt.Fprintf(w, "    RefTime: %s\n", fmtTime(r.ReferenceTime))
+	if r.Version == 5 {
+		fmt.Fprintf(w, " RefIDBytes: %s\n", fmtRefIDFilter(r.ReferenceIDFilterValues))
+		fmt.Fprintf(w, " Correction: %s\n", fmtCorrection(r.Correction))
+		fmt.Fprintf(w, "    Offsets: %s\n", fmtTimescaleOffsets(r.TimescaleOffsets))
+		fmt.Fprintf(w, " MonoOffset: %s\n", r.MonotonicOffset)
+		fmt.Fprintf(w, "  MonoEpoch: %s\n", fmtEpoch(r.MonotonicEpochID))
+		fmt.Fprintf(w, "  Supported: %v\n", r.SupportedVersions)
+		fmt.Fprintf(w, "  SrvCookie: %s", fmtCookie(r.ServerCookie))
+	} else {
+		fmt.Fprintf(w, "      RefID: %s (0x%08x)\n", r.ReferenceString(), r.ReferenceID)
+		fmt.Fprintf(w, "   KissCode: %s", fmtKissCode(r.KissCode))
+	}
 }
 
 // ReferenceString returns the response's ReferenceID value formatted as a
@@ -885,4 +927,127 @@ func toInterval(t int8) time.Duration {
 	default:
 		return time.Second
 	}
+}
+
+func fmtCookie(c uint64) string {
+	if c == 0 {
+		return "<zero>"
+	}
+	return fmt.Sprintf("0x%016x", c)
+}
+
+func fmtCorrection(c Correction) string {
+	if c.OriginDelay < 0 || c.ReturnDelay < 0 {
+		return "<invalid>"
+	}
+	if c.OriginPathID == 0 && c.ReturnPathID == 0 {
+		return "<none>"
+	}
+	return fmt.Sprintf("%s (0x%04x) / %s (0x%04x)",
+		c.OriginDelay, c.OriginPathID,
+		c.ReturnDelay, c.ReturnPathID)
+}
+
+func fmtEpoch(epoch uint32) string {
+	if epoch == 0 {
+		return "<zero>"
+	}
+	return fmt.Sprintf("0x%08x", epoch)
+}
+
+func fmtKissCode(s string) string {
+	if s == "" {
+		return "<empty>"
+	}
+	return s
+}
+
+func fmtLeap(li LeapIndicator) string {
+	switch li {
+	case LeapNoWarning:
+		return "No Warning"
+	case LeapAddSecond:
+		return "Add Second"
+	case LeapDelSecond:
+		return "Delete Second"
+	default:
+		return "Unknown"
+	}
+}
+
+func fmtRefIDFilter(filter []byte) string {
+	if filter == nil {
+		return "<nil>"
+	}
+	l := min(len(filter), 24)
+	return "0x" + hex.EncodeToString(filter[:l]) + "..."
+}
+
+func fmtFlags(flags ResponseFlags) string {
+	ftab := map[ResponseFlags]string{
+		FlagSynchronized: "Synchronized",
+		FlagInterleaved:  "Interleaved",
+	}
+
+	copy := flags
+	var s strings.Builder
+	s.WriteString("[")
+	for flags != 0 {
+		f := flags & -flags
+		if s.Len() > 1 {
+			s.WriteString(" ")
+		}
+		if ss, ok := ftab[f]; ok {
+			s.WriteString(ss)
+		} else {
+			s.WriteString("Unknown")
+		}
+		flags &= ^f
+	}
+	fmt.Fprintf(&s, "] (0x%08x)", uint32(copy))
+	return s.String()
+}
+
+func fmtTime(value time.Time) string {
+	if value.IsZero() {
+		return "<zero>"
+	}
+	return value.Format(timeFormat)
+}
+
+func fmtTimescale(ts Timescale) string {
+	switch ts {
+	case TimescaleUTC:
+		return "UTC"
+	case TimescaleTAI:
+		return "TAI"
+	case TimescaleUT1:
+		return "UT1"
+	case TimescaleUTCSmeared:
+		return "UTC(smeared)"
+	default:
+		return "Unknown"
+	}
+}
+
+func fmtTimescaleOffset(o TimescaleOffset) string {
+	return fmt.Sprintf("%s=%v", fmtTimescale(o.Timescale), o.Offset)
+}
+
+func fmtTimescaleOffsets(offsets []TimescaleOffset) string {
+	if offsets == nil {
+		return "<none>"
+	}
+
+	var s strings.Builder
+	s.WriteString("[")
+	for i, o := range offsets {
+		if i > 0 {
+			s.WriteString(", ")
+		}
+		s.WriteString(fmtTimescaleOffset(o))
+	}
+	s.WriteString("]")
+
+	return s.String()
 }
