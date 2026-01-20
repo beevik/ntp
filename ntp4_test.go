@@ -23,8 +23,12 @@ func TestOnlineBadServerPort(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestOnlineV3Query(t *testing.T) {
-	r, err := QueryWithOptions(host, QueryOptions{Version: 3})
+func TestOnlineV3QueryWithSupportedVersions(t *testing.T) {
+	opt := QueryOptions{
+		Version:                  3,
+		RequestSupportedVersions: true,
+	}
+	r, err := QueryWithOptions(host, opt)
 	if isError(t, host, err) {
 		return
 	}
@@ -37,7 +41,28 @@ func TestOnlineV3Query(t *testing.T) {
 }
 
 func TestOnlineV4Query(t *testing.T) {
-	r, err := QueryWithOptions(host, QueryOptions{Version: 4})
+	opt := QueryOptions{
+		Version:                  4,
+		RequestSupportedVersions: false,
+	}
+	r, err := QueryWithOptions(host, opt)
+	if isError(t, host, err) {
+		return
+	}
+	assertValid(t, r)
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "\n    Address: %s\n", host)
+	r.Log(&buf)
+	t.Log(buf.String())
+}
+
+func TestOnlineV4QueryWithSupportedVersions(t *testing.T) {
+	opt := QueryOptions{
+		Version:                  4,
+		RequestSupportedVersions: true,
+	}
+	r, err := QueryWithOptions(host, opt)
 	if isError(t, host, err) {
 		return
 	}

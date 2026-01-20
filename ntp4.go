@@ -21,6 +21,13 @@ type modeV4 uint8
 const (
 	clientMode modeV4 = 3
 	serverMode modeV4 = 4
+
+	// Sentinel value sent in the ReferenceTime field to request whether the
+	// server supports NTPv5. If server responds with the same value, then it
+	// also supports NTPv5. This value is the ASCII representation of
+	// "NTP5DRFT". Once the NTPv5 protocol is finalized, the value will be
+	// changed to "NTP5NTP5".
+	v5sentinel = 0x4e54503544524654
 )
 
 // timeShortV4 is a 32-bit fixed-point (Q16.16) representation of the number
@@ -191,6 +198,18 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		Time:           m.TransmitTime.TimeV4(),
 	}
 
+	// If NTPv5 support was requested, check for it.
+	if opt.RequestSupportedVersions {
+		r.SupportedVersions = []int{opt.Version}
+
+		// If the server responded to the NTPv5 support request in its
+		// ReferenceTime field, add version 5 and clear the ReferenceTime.
+		if m.ReferenceTime == v5sentinel {
+			r.SupportedVersions = append(r.SupportedVersions, 5)
+			r.ReferenceTime = ntpEra0
+		}
+	}
+
 	// Calculate root distance.
 	r.RootDistance = rootDistance(r.RTT, r.RootDelay, r.RootDispersion)
 
@@ -220,6 +239,12 @@ func buildV4Request(opt *QueryOptions) (*bytes.Buffer, error) {
 	m.setVersion(opt.Version)
 	m.setMode(clientMode)
 	m.setLeap(LeapNoWarning)
+
+	// To request whether the server supports NTPv5, set the reference time to
+	// "NTP5DRFT". If the server supports it, it will echo this value back.
+	if opt.RequestSupportedVersions {
+		m.ReferenceTime = v5sentinel
+	}
 
 	// Write the message to a buffer.
 	buf := new(bytes.Buffer)

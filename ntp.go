@@ -178,8 +178,12 @@ type QueryOptions struct {
 	RequestReferenceID ReferenceIDRequest
 
 	// RequestSupportedVersions indicates whether to request which versions of
-	// the NTP protocol are supported by the server in its response. Used only
-	// in NTPv5.
+	// the NTP protocol are supported by the server. When used with NTPv5, the
+	// response will list all supported versions. When used with NTPv3 or
+	// NTPv4, the response's supported versions will include the version used
+	// in the query as well as 5 if the server supports it. The response's
+	// ReferenceTime field will be invalid in NTPv3 and NTPv4 if this option
+	// is set.
 	RequestSupportedVersions bool
 
 	// RequestCorrection indicates whether to request delay corrections from
@@ -484,6 +488,7 @@ func (r *Response) Log(w io.Writer) {
 	fmt.Fprintf(w, "  RootDelay: %s\n", r.RootDelay)
 	fmt.Fprintf(w, "   RootDisp: %s\n", r.RootDispersion)
 	fmt.Fprintf(w, "   RootDist: %s\n", r.RootDistance)
+	fmt.Fprintf(w, "  Supported: %v\n", r.SupportedVersions)
 	fmt.Fprintf(w, "   MinError: %s\n", r.MinError)
 	fmt.Fprintf(w, "    RefTime: %s\n", fmtTime(r.ReferenceTime))
 	if r.Version == 5 {
@@ -492,7 +497,6 @@ func (r *Response) Log(w io.Writer) {
 		fmt.Fprintf(w, "    Offsets: %s\n", fmtTimescaleOffsets(r.TimescaleOffsets))
 		fmt.Fprintf(w, " MonoOffset: %s\n", r.MonotonicOffset)
 		fmt.Fprintf(w, "  MonoEpoch: %s\n", fmtEpoch(r.MonotonicEpochID))
-		fmt.Fprintf(w, "  Supported: %v\n", r.SupportedVersions)
 		fmt.Fprintf(w, "  SrvCookie: %s", fmtCookie(r.ServerCookie))
 	} else {
 		fmt.Fprintf(w, "      RefID: %s (0x%08x)\n", r.ReferenceString(), r.ReferenceID)
@@ -559,9 +563,9 @@ func (r *Response) Validate() error {
 		return ErrInvalidStratum
 	}
 
-	// Estimate the "freshness" of the time. If it exceeds the maximum
-	// polling interval (~36 hours), then it cannot be considered "fresh".
-	if r.Version < 5 || (r.Version == 5 && !r.ReferenceTime.IsZero()) {
+	// Estimate the "freshness" of the time. If it exceeds the maximum polling
+	// interval (~36 hours), then it cannot be considered "fresh".
+	if (r.Version < 5 && r.ReferenceTime != ntpEra0) || (r.Version == 5 && !r.ReferenceTime.IsZero()) {
 		if freshness := r.Time.Sub(r.ReferenceTime); freshness > maxPollInterval {
 			return ErrServerClockFreshness
 		}
@@ -1009,8 +1013,8 @@ func fmtFlags(flags ResponseFlags) string {
 }
 
 func fmtTime(value time.Time) string {
-	if value.IsZero() {
-		return "<zero>"
+	if value.Equal(ntpEra0) {
+		return "<invalid>"
 	}
 	return value.Format(timeFormat)
 }
