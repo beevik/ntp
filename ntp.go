@@ -177,13 +177,12 @@ type QueryOptions struct {
 	// of the response. Used only in NTPv5.
 	RequestReferenceID ReferenceIDRequest
 
-	// RequestSupportedVersions indicates whether to request which versions of
-	// the NTP protocol are supported by the server. When used with NTPv5, the
+	// RequestSupportedVersions indicates whether to request the versions of
+	// the NTP protocol supported by the server. When used with NTPv5, the
 	// response will list all supported versions. When used with NTPv3 or
-	// NTPv4, the response's supported versions will include the version used
-	// in the query as well as 5 if the server supports it. The response's
-	// ReferenceTime field will be invalid in NTPv3 and NTPv4 if this option
-	// is set.
+	// NTPv4, the response's ReferenceTime value will be invalid, and the
+	// supported version list will include the version used in the query as
+	// well as 5 if the server supports it.
 	RequestSupportedVersions bool
 
 	// RequestCorrection indicates whether to request delay corrections from
@@ -216,13 +215,9 @@ type QueryOptions struct {
 	// is guaranteed to include a port number.
 	Dialer func(localAddress, remoteAddress string) (net.Conn, error)
 
-	// Dial is a callback used to override the default UDP network dialer.
-	//
 	// DEPRECATED. Use Dialer instead.
 	Dial func(laddr string, lport int, raddr string, rport int) (net.Conn, error)
 
-	// Port indicates the port used to reach the remote NTP server.
-	//
 	// DEPRECATED. Embed the port number in the query address string instead.
 	Port int
 }
@@ -370,10 +365,6 @@ type Response struct {
 	// Used only in NTPv5.
 	ServerCookie uint64
 
-	// Time is the time the server transmitted this response, measured using
-	// its own clock. You should not use this value for time synchronization
-	// purposes. Add ClockOffset to your system clock instead.
-	//
 	// DEPRECATED. Use Timestamps.ServerXmit instead.
 	Time time.Time
 

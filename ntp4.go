@@ -198,12 +198,14 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		Time:           m.TransmitTime.TimeV4(),
 	}
 
-	// If NTPv5 support was requested, check for it.
+	// If supported versions were requested, check the response for an answer.
 	if opt.RequestSupportedVersions {
+		// Always include the version used in the query.
 		r.SupportedVersions = []int{opt.Version}
 
 		// If the server responded to the NTPv5 support request in its
-		// ReferenceTime field, add version 5 and clear the ReferenceTime.
+		// ReferenceTime field, add version 5 to the list and invalidate the
+		// ReferenceTime.
 		if m.ReferenceTime == v5sentinel {
 			r.SupportedVersions = append(r.SupportedVersions, 5)
 			r.ReferenceTime = ntpEra0

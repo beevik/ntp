@@ -264,7 +264,7 @@ func TestOfflineV5DraftIDExtension(t *testing.T) {
 	xlen := binary.BigEndian.Uint16(data[2:4])
 
 	assert.Equal(t, extDraftID, xtype)
-	assert.Equal(t, buf.Len(), paddedLen(int(xlen)), "Length should include header")
+	assert.Equal(t, buf.Len(), padlen(int(xlen)), "Length should include header")
 
 	assert.True(t, bytes.Contains(data[4:], []byte(draftID)), "Extension should contain draft ID string")
 }

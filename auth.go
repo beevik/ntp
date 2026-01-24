@@ -115,7 +115,7 @@ func calcCMAC_AES(payload, key []byte) []byte {
 		xor(cmac, payload)
 		xor(cmac, k1)
 	} else {
-		xor(cmac, pad(payload))
+		xor(cmac, padblock(payload))
 		xor(cmac, k2)
 	}
 	c.Encrypt(cmac, cmac)
@@ -123,7 +123,7 @@ func calcCMAC_AES(payload, key []byte) []byte {
 	return cmac
 }
 
-func pad(block []byte) []byte {
+func padblock(block []byte) []byte {
 	pad := make([]byte, 16-len(block))
 	pad[0] = 0x80
 	return append(block, pad...)

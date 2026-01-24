@@ -18,6 +18,7 @@ import (
 	"time"
 )
 
+// NTPv5 errors. Will move to ntp.go once NTPv5 is finalized.
 var (
 	ErrInvalidDraftID            = errors.New("invalid draft ID value in response")
 	ErrInvalidExtensionField     = errors.New("invalid extension field in response")
@@ -186,7 +187,7 @@ func (m *messageV5) getLeap() LeapIndicator {
 
 // queryV5 performs an NTPv5 time query using the provided connection.
 func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
-	// Generate a random client cookie if not set by the caller.
+	// Generate a random client cookie. The response cookie needs to match.
 	clientCookie, err := randUint64()
 	if err != nil {
 		return nil, err
@@ -258,7 +259,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, err
 	}
 
-	// Compare cookies.
+	// Validate the client cookie.
 	if m.ClientCookie != clientCookie {
 		return nil, ErrServerResponseMismatch
 	}
@@ -339,7 +340,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 		case extServerInfo:
 			bits := binary.BigEndian.Uint16(body[0:2])
-			for v := 3; v <= 5; v++ {
+			for v := 1; v <= 5; v++ {
 				if bits&(1<<uint16(v-1)) != 0 {
 					r.SupportedVersions = append(r.SupportedVersions, v)
 				}
@@ -397,7 +398,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			}
 		}
 
-		offset += paddedLen(xlen)
+		offset += padlen(xlen)
 		curr = recvBuf[offset:]
 	}
 
@@ -535,13 +536,10 @@ func parseV5Response(data []byte) (*messageV5, error) {
 }
 
 func writeExtDraftID(buf *bytes.Buffer) {
-	valueLenPadded := paddedLen(len(draftID))
-	totalLen := 4 + len(draftID) // Confirm that length shouldn't include pad!
-
 	binary.Write(buf, binary.BigEndian, extDraftID)
-	binary.Write(buf, binary.BigEndian, uint16(totalLen))
+	binary.Write(buf, binary.BigEndian, uint16(4+len(draftID)))
 	buf.Write([]byte(draftID))
-	buf.Write(padBytes[:valueLenPadded-len(draftID)])
+	buf.Write(pad(len(draftID)))
 }
 
 func writeExtRefIDRequest(buf *bytes.Buffer, req ReferenceIDRequest) {
@@ -592,6 +590,10 @@ func writeExtSecondaryTimestamp(buf *bytes.Buffer, timescale Timescale) {
 
 var padBytes = make([]byte, 4)
 
-func paddedLen(len int) int {
+func padlen(len int) int {
 	return (len + 3) & ^3
+}
+
+func pad(len int) []byte {
+	return padBytes[:padlen(len)-len]
 }
