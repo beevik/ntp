@@ -643,6 +643,13 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 	}
 	defer conn.Close()
 
+	// Attempt to enable hardware timestamping for more accurate receive
+	// timestamps.
+	err = enableHardwareTimestamps(conn)
+	if err != nil {
+		return nil, err
+	}
+
 	// Set a TTL for the packet if requested.
 	if opt.TTL != 0 {
 		ipcon := ipv4.NewConn(conn)

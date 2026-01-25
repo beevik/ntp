@@ -206,6 +206,10 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Allocate a buffer big enough to hold an entire response datagram.
 	recvBuf := make([]byte, 8192)
 
+	// Allocate a buffer for out-of-band control messages (used to hold
+	// hardware timestamps).
+	oob := make([]byte, 128)
+
 	// Build the NTPv5 request along with most extension fields into a buffer.
 	xmitBuf, err := buildV5Request(opt, clientCookie)
 	if err != nil {
@@ -235,15 +239,13 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, err
 	}
 
-	// Receive the response message.
-	n, err := conn.Read(recvBuf)
+	// Receive the response message, capturing the kernel-level receive
+	// timestamp if possible.
+	n, clientRecvTime, err := readWithTimestamp(conn, recvBuf, oob, opt)
 	if err != nil {
 		return nil, err
 	}
 	recvBuf = recvBuf[:n]
-
-	// Keep track of the time the response message was received.
-	clientRecvTime := opt.GetSystemTime()
 
 	// Allow package extensions to process the response buffer.
 	for i := len(opt.Extensions) - 1; i >= 0; i-- {

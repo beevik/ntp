@@ -95,6 +95,10 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 	// Allocate a buffer big enough to hold an entire response datagram.
 	recvBuf := make([]byte, 8192)
 
+	// Allocate a buffer for out-of-band control messages (used to hold
+	// hardware timestamps).
+	oob := make([]byte, 128)
+
 	// Build the request message.
 	xmitBuf, err := buildV4Request(opt)
 
@@ -142,15 +146,13 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		return nil, err
 	}
 
-	// Wait for the response.
-	n, err := conn.Read(recvBuf)
+	// Wait for the response, capturing the kernel-level receive timestamp if
+	// possible.
+	n, recvTime, err := readWithTimestamp(conn, recvBuf, oob, opt)
 	if err != nil {
 		return nil, err
 	}
 	recvBuf = recvBuf[:n]
-
-	// Keep track of the time the response was received.
-	recvTime := opt.GetSystemTime()
 
 	// Allow package extensions to process the response buffer.
 	for i := len(opt.Extensions) - 1; i >= 0; i-- {
