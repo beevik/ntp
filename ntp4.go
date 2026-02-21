@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/binary"
-	"net"
 	"time"
 )
 
@@ -91,14 +90,7 @@ func (m *messageV4) getLeap() LeapIndicator {
 
 // queryV4 performs the NTPv3 or NTPv4 server query and returns the response
 // message along with the local system time it was received.
-func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
-	// Allocate a buffer big enough to hold an entire response datagram.
-	recvBuf := make([]byte, 8192)
-
-	// Allocate a buffer for out-of-band control messages (used to hold
-	// hardware timestamps).
-	oob := make([]byte, 128)
-
+func queryV4(conn conn, opt *QueryOptions) (*Response, error) {
 	// Build the request message.
 	xmitBuf, err := buildV4Request(opt)
 
@@ -148,22 +140,21 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 	// Wait for the response, capturing the kernel-level receive timestamp if
 	// possible.
-	n, recvTime, err := readWithTimestamp(conn, recvBuf, oob, opt)
+	recvMsg, recvTime, err := conn.Read()
 	if err != nil {
 		return nil, err
 	}
-	recvBuf = recvBuf[:n]
 
 	// Allow package extensions to process the response buffer.
 	for i := len(opt.Extensions) - 1; i >= 0; i-- {
-		err = opt.Extensions[i].ProcessResponse(recvBuf)
+		err = opt.Extensions[i].ProcessResponse(recvMsg)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Parse the response message.
-	m, err := parseV4Response(recvBuf)
+	m, err := parseV4Response(recvMsg)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +221,7 @@ func queryV4(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 	// If symmetric authentication was requested, authenticate the response.
 	if opt.Auth.Type != AuthNone {
-		r.authErr = verifyMAC(recvBuf, opt, authKey)
+		r.authErr = verifyMAC(recvMsg, opt, authKey)
 	}
 
 	return r, r.authErr

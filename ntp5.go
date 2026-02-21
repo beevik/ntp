@@ -14,7 +14,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"net"
 	"time"
 )
 
@@ -186,7 +185,7 @@ func (m *messageV5) getLeap() LeapIndicator {
 }
 
 // queryV5 performs an NTPv5 time query using the provided connection.
-func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
+func queryV5(conn conn, opt *QueryOptions) (*Response, error) {
 	// Generate a random client cookie. The response cookie needs to match.
 	clientCookie, err := randUint64()
 	if err != nil {
@@ -202,13 +201,6 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			return nil, err
 		}
 	}
-
-	// Allocate a buffer big enough to hold an entire response datagram.
-	recvBuf := make([]byte, 8192)
-
-	// Allocate a buffer for out-of-band control messages (used to hold
-	// hardware timestamps).
-	oob := make([]byte, 128)
 
 	// Build the NTPv5 request along with most extension fields into a buffer.
 	xmitBuf, err := buildV5Request(opt, clientCookie)
@@ -241,22 +233,21 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 	// Receive the response message, capturing the kernel-level receive
 	// timestamp if possible.
-	n, clientRecvTime, err := readWithTimestamp(conn, recvBuf, oob, opt)
+	recvMsg, clientRecvTime, err := conn.Read()
 	if err != nil {
 		return nil, err
 	}
-	recvBuf = recvBuf[:n]
 
 	// Allow package extensions to process the response buffer.
 	for i := len(opt.Extensions) - 1; i >= 0; i-- {
-		err = opt.Extensions[i].ProcessResponse(recvBuf)
+		err = opt.Extensions[i].ProcessResponse(recvMsg)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Parse the response message.
-	m, err := parseV5Response(recvBuf)
+	m, err := parseV5Response(recvMsg)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +305,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 
 	// Process extension fields.
 	offset := msgSize
-	curr := recvBuf[offset:]
+	curr := recvMsg[offset:]
 	for len(curr) >= 4 {
 		xtype := extType(binary.BigEndian.Uint16(curr[0:2]))
 		xlen := int(binary.BigEndian.Uint16(curr[2:4]))
@@ -332,7 +323,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 			if len(body[4:]) != getMACSize(opt.Version, opt.Auth.Type) {
 				return nil, ErrAuthFailed
 			}
-			mac := calcMAC(opt.Version, opt.Auth.Type, authKey, recvBuf[:offset])
+			mac := calcMAC(opt.Version, opt.Auth.Type, authKey, recvMsg[:offset])
 			if subtle.ConstantTimeCompare(mac, body[4:]) == 0 {
 				r.authErr = ErrAuthFailed
 			}
@@ -401,7 +392,7 @@ func queryV5(conn net.Conn, opt *QueryOptions) (*Response, error) {
 		}
 
 		offset += padlen(xlen)
-		curr = recvBuf[offset:]
+		curr = recvMsg[offset:]
 	}
 
 	return r, r.authErr

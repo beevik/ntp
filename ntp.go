@@ -23,8 +23,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/net/ipv4"
 )
 
 var (
@@ -636,34 +634,22 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 		return nil, err
 	}
 
-	// Connect to the NTP server.
-	conn, err := opt.Dialer(opt.LocalAddress, remoteAddress)
+	// Create an NTP connection.
+	baseConn, err := opt.Dialer(opt.LocalAddress, remoteAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap the base connection in a platform-specific connection type to
+	// allow for the reading of hardware timestamps.
+	conn, err := newConn(baseConn, &opt)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	// Attempt to enable hardware timestamping for more accurate receive
-	// timestamps.
-	err = enableHardwareTimestamps(conn)
-	if err != nil {
-		return nil, err
-	}
-
-	// Set a TTL for the packet if requested.
-	if opt.TTL != 0 {
-		ipcon := ipv4.NewConn(conn)
-		err = ipcon.SetTTL(opt.TTL)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Set a timeout on the connection.
-	conn.SetDeadline(time.Now().Add(opt.Timeout))
-
-	// Perform the version-specific query. NTPv3 and NTPv4 share nearly
-	// the same client implementation, so use queryV4 for both.
+	// Perform a version-specific query. NTPv3 and NTPv4 share nearly the same
+	// client implementation, so use queryV4 for both.
 	if opt.Version == 5 {
 		return queryV5(conn, &opt)
 	} else {
@@ -758,9 +744,8 @@ func fixHostPort(address string, defaultPort int) (fixed string, err error) {
 		return fmt.Sprintf("%s:%d", address, defaultPort), nil
 	}
 
-	// Exactly one colon? A port have been included along with an IPv4 or
-	// domain address. (IPv6 addresses are guaranteed to have more than one
-	// colon.)
+	// Exactly one colon? A port wasincluded along with an IPv4 or domain
+	// address. (IPv6 addresses are guaranteed to have more than one colon.)
 	prev := strings.LastIndexByte(address[:last], ':')
 	if prev < 0 {
 		return address, nil
@@ -772,9 +757,9 @@ func fixHostPort(address string, defaultPort int) (fixed string, err error) {
 
 // NTP eras
 var (
-	ntpEra0      = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
-	ntpEra1      = time.Date(2036, 2, 7, 6, 28, 16, 0, time.UTC)
 	ntpEraLength = time.Duration(int64(time.Second) << 32)
+	ntpEra0      = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+	ntpEra1      = ntpEra0.Add(ntpEraLength)
 )
 
 // getEra determines the NTP era for the provided time.
