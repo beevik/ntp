@@ -7,6 +7,7 @@
 package ntp
 
 import (
+	"encoding/binary"
 	"net"
 	"time"
 
@@ -52,7 +53,7 @@ func readWithTimestamp(conn net.Conn, b, oob []byte, opt *QueryOptions) (n int, 
 		return n, opt.GetSystemTime(), err
 	}
 
-	// Fallback to imprecise time.
+	// Get imprecise time in case we can't get a kernel timestamp.
 	recvTime = opt.GetSystemTime()
 
 	// Parse control messages to extract timestamp.
@@ -62,8 +63,8 @@ func readWithTimestamp(conn net.Conn, b, oob []byte, opt *QueryOptions) (n int, 
 			for _, m := range msgs {
 				if m.Header.Level == unix.SOL_SOCKET && m.Header.Type == unix.SCM_TIMESTAMP {
 					if len(m.Data) >= 12 {
-						sec := int64(nativeEndian.Uint64(m.Data[0:8]))
-						usec := int64(nativeEndian.Uint32(m.Data[8:12]))
+						sec := int64(binary.NativeEndian.Uint64(m.Data[0:8]))
+						usec := int64(binary.NativeEndian.Uint32(m.Data[8:12]))
 						recvTime = time.Unix(sec, usec*1000).UTC()
 						break
 					}

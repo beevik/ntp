@@ -215,13 +215,13 @@ func parseTimestamp(controlBuf []byte) (time.Time, bool) {
 				// FILETIME is the number of 100-nanosecond intervals since
 				// 1601-01-01 (UTC). A value of zero means no hardware
 				// timestamp was available.
-				filetime := binary.LittleEndian.Uint64(data[0:8])
+				filetime := binary.NativeEndian.Uint64(data[0:8])
 				if filetime == 0 {
 					return time.Time{}, false
 				}
 
 				// FILETIME epoch is 1601-01-01, Unix epoch is 1970-01-01.
-				const filetimeToUnixOffset = 116444736000000000
+				const filetimeToUnixOffset = 116_444_736_000_000_000
 				if filetime > filetimeToUnixOffset {
 					nsec := (filetime - filetimeToUnixOffset) * 100
 					return time.Unix(0, int64(nsec)).UTC(), true
@@ -231,7 +231,7 @@ func parseTimestamp(controlBuf []byte) (time.Time, bool) {
 			}
 		}
 
-		// Move to next control message.
+		// Move to the next control message.
 		offset := (hdr.Len + 3) & ^uint64(3)
 		if offset > uint64(len(controlBuf)) {
 			break

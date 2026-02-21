@@ -7,6 +7,7 @@
 package ntp
 
 import (
+	"encoding/binary"
 	"net"
 	"time"
 
@@ -52,7 +53,7 @@ func readWithTimestamp(conn net.Conn, b, oob []byte, opt *QueryOptions) (n int, 
 		return n, opt.GetSystemTime(), err
 	}
 
-	// Fallback to imprecise time.
+	// Get imprecise time in case we can't get a kernel timestamp.
 	recvTime = opt.GetSystemTime()
 
 	// Parse control messages to extract timestamp.
@@ -62,16 +63,16 @@ func readWithTimestamp(conn net.Conn, b, oob []byte, opt *QueryOptions) (n int, 
 			for _, m := range msgs {
 				// Try nanosecond precision first.
 				if m.Header.Level == unix.SOL_SOCKET && m.Header.Type == unix.SO_TIMESTAMPNS {
-					sec := int64(nativeEndian.Uint64(m.Data[0:8]))
-					nsec := int64(nativeEndian.Uint64(m.Data[8:16]))
+					sec := int64(binary.NativeEndian.Uint64(m.Data[0:8]))
+					nsec := int64(binary.NativeEndian.Uint64(m.Data[8:16]))
 					recvTime = time.Unix(sec, nsec).UTC()
 					break
 				}
 
 				// Fallback to microsecond precision.
 				if m.Header.Level == unix.SOL_SOCKET && m.Header.Type == unix.SO_TIMESTAMP {
-					sec := int64(nativeEndian.Uint64(m.Data[0:8]))
-					usec := int64(nativeEndian.Uint64(m.Data[8:16]))
+					sec := int64(binary.NativeEndian.Uint64(m.Data[0:8]))
+					usec := int64(binary.NativeEndian.Uint64(m.Data[8:16]))
 					recvTime = time.Unix(sec, usec*1000).UTC()
 					break
 				}
