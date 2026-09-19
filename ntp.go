@@ -545,11 +545,15 @@ func (r *Response) Validate() error {
 	}
 
 	// Handle invalid stratum values.
-	if r.Version < 5 && r.Stratum == 0 {
-		return ErrKissOfDeath
-	}
 	if r.Stratum >= maxStratum {
 		return ErrInvalidStratum
+	}
+	if r.Stratum == 0 {
+		if r.Version < 5 {
+			return ErrKissOfDeath
+		} else {
+			return ErrInvalidStratum
+		}
 	}
 
 	// Estimate the "freshness" of the time. If it exceeds the maximum polling

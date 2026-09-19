@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// EXPERIMENTAL: This file implements NTP versions 3 and 4 (NTPv3 and NTPv4)
-// protocol support. It is based on draft-ietf-ntp-ntpv5 and is subject to
-// change as the specification evolves. Do not use in production environments.
+// EXPERIMENTAL: This file implements NTP versions 5 (NTPv5) protocol support.
+// It is based on draft-ietf-ntp-ntpv5 and is subject to change as the
+// specification evolves. Do not use in production environments.
 
 package ntp
 
