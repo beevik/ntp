@@ -68,7 +68,7 @@ const (
 
 const (
 	// The currently supported draft version.
-	draftID = "draft-ietf-ntp-ntpv5-07"
+	draftID = "draft-ietf-ntp-ntpv5-09"
 
 	// Maximum assumed frequency error for devices measuring delay corrections
 	// (100ppm)
