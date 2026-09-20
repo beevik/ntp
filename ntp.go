@@ -118,9 +118,12 @@ type QueryOptions struct {
 	Timeout time.Duration
 
 	// Version of the NTP protocol to use. Defaults to 4. Allowed values
-	// include 3, 4, and 5. The IETF has not finalized version 5 of the NTP
-	// protocol, so version 5 support is considered experimental and should
-	// not be used in production.
+	// include 3, 4, and 5.
+	//
+	// The IETF has not finalized version 5 of the NTP protocol, so version 5
+	// support is considered experimental and should not be used in
+	// production. This package currently supports only NTPv5 draft version
+	// "draft-ietf-ntp-ntpv5-09".
 	Version int
 
 	// LocalAddress contains the local IP address to use when creating a
