@@ -284,7 +284,7 @@ func queryV5(conn conn, opt *QueryOptions) (*Response, error) {
 		Poll:           toInterval(m.Poll),
 		Flags:          0,
 		ServerCookie:   m.ServerCookie,
-		Time:           serverXmitTime,
+		Time:           t3,
 	}
 
 	// Calculate root distance.

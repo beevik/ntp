@@ -188,7 +188,7 @@ func queryV4(conn conn, opt *QueryOptions) (*Response, error) {
 		MinError:       minError(t1, t2, t3, t4),
 		Poll:           toInterval(m.Poll),
 		Flags:          0,
-		Time:           m.TransmitTime.TimeV4(),
+		Time:           t3,
 	}
 
 	// If supported versions were requested, check the response for an answer.
