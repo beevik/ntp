@@ -17,15 +17,17 @@ const (
 )
 
 // conn is a wrapper for an underlying net.Conn type. It provides
-// platform-specific support for reading hardware timestamps when available.
+// platform-specific support for reading kernel timestamps when available.
 type conn interface {
 	// Close the connection.
 	Close() error
 
 	// Read a message from the connection. It returns the received message,
-	// the hardware receive timestamp (if available), and any error
-	// encountered. If hardware timestamps are unavailable, it returns the
-	// less precise software-based system timestamp instead.
+	// the kernel receive timestamp (if available), and any error encountered.
+	// If kernel timestamps are unavailable, it returns the less precise
+	// software-based system timestamp instead. The returned slice aliases a
+	// buffer owned by the connection and remains valid only until the next
+	// call to Read.
 	Read() (b []byte, recvTime time.Time, err error)
 
 	// Write a message to the connection.

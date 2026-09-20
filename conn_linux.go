@@ -22,7 +22,11 @@ type connLinux struct {
 	getTime func() time.Time
 }
 
-func newConn(base net.Conn, opt *QueryOptions) (conn, error) {
+func newConn(base net.Conn, opt *QueryOptions, useKernelTime bool) (conn, error) {
+	if !useKernelTime {
+		return newConnFallback(base, opt)
+	}
+
 	udpConn, ok := base.(*net.UDPConn)
 	if !ok {
 		return newConnFallback(base, opt)
@@ -42,7 +46,7 @@ func newConn(base net.Conn, opt *QueryOptions) (conn, error) {
 	}
 
 	if err := applyOptions(base, opt); err != nil {
-		return newConnFallback(base, opt)
+		return nil, err
 	}
 
 	conn := &connLinux{
@@ -65,27 +69,19 @@ func (c *connLinux) Read() (b []byte, recvTime time.Time, err error) {
 		return nil, time.Time{}, err
 	}
 
-	// Get imprecise time in case we can't get a hardware timestamp.
+	// Get imprecise time in case we can't get a kernel timestamp.
 	recvTime = c.getTime()
 
-	// Parse control messages to extract timestamp.
+	// Parse control messages to extract the nanosecond-precision timestamp.
 	if oobn > 0 {
 		cmsgs, parseErr := unix.ParseSocketControlMessage(c.oobBuf[:oobn])
 		if parseErr == nil {
 			for _, cmsg := range cmsgs {
-				// Try nanosecond precision first.
-				if cmsg.Header.Level == unix.SOL_SOCKET && cmsg.Header.Type == unix.SO_TIMESTAMPNS {
-					sec := int64(binary.NativeEndian.Uint64(cmsg.Data[0:8]))
-					nsec := int64(binary.NativeEndian.Uint64(cmsg.Data[8:16]))
-					recvTime = time.Unix(sec, nsec).UTC()
-					break
+				if cmsg.Header.Level != unix.SOL_SOCKET || cmsg.Header.Type != unix.SO_TIMESTAMPNS {
+					continue
 				}
-
-				// Fallback to microsecond precision.
-				if cmsg.Header.Level == unix.SOL_SOCKET && cmsg.Header.Type == unix.SO_TIMESTAMP {
-					sec := int64(binary.NativeEndian.Uint64(cmsg.Data[0:8]))
-					usec := int64(binary.NativeEndian.Uint64(cmsg.Data[8:16]))
-					recvTime = time.Unix(sec, usec*1000).UTC()
+				if sec, nsec, ok := parseTimeFields(cmsg.Data); ok {
+					recvTime = time.Unix(sec, nsec).UTC()
 					break
 				}
 			}
@@ -97,4 +93,18 @@ func (c *connLinux) Read() (b []byte, recvTime time.Time, err error) {
 
 func (c *connLinux) Write(b []byte) (n int, err error) {
 	return c.base.Write(b)
+}
+
+func parseTimeFields(data []byte) (sec, nsec int64, ok bool) {
+	switch len(data) {
+	case 8: // two 32-bit fields
+		sec = int64(int32(binary.NativeEndian.Uint32(data[0:4])))
+		nsec = int64(int32(binary.NativeEndian.Uint32(data[4:8])))
+	case 16: // two 64-bit fields
+		sec = int64(binary.NativeEndian.Uint64(data[0:8]))
+		nsec = int64(binary.NativeEndian.Uint64(data[8:16]))
+	default:
+		return 0, 0, false
+	}
+	return sec, nsec, true
 }

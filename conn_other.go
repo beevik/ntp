@@ -9,6 +9,6 @@ import (
 	"net"
 )
 
-func newConn(base net.Conn, opt *QueryOptions) (conn, error) {
+func newConn(base net.Conn, opt *QueryOptions, _ bool) (conn, error) {
 	return newConnFallback(base, opt)
 }

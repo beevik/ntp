@@ -105,7 +105,8 @@ type Extension interface {
 
 	// ProcessResponse is called after the client has received the server's
 	// NTP response. The buffer contains the entire message returned by the
-	// server.
+	// server. It is owned by the package and is valid only for the duration
+	// of the call.
 	ProcessResponse(buf []byte) error
 }
 
@@ -167,7 +168,8 @@ type QueryOptions struct {
 
 	// GetSystemTime is a callback used to override the default method of
 	// obtaining the local system time during time synchronization. If not
-	// specified, time.Now is used.
+	// specified, time.Now is used. Specifying this callback disables the use
+	// of kernel timestamps on platforms that would otherwise support them.
 	GetSystemTime func() time.Time
 
 	// RequestReferenceID is a struct used to request reference ID bloom
@@ -618,9 +620,12 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 	if opt.Port == 0 {
 		opt.Port = defaultPort
 	}
+
+	useKernelTime := opt.GetSystemTime == nil
 	if opt.GetSystemTime == nil {
 		opt.GetSystemTime = func() time.Time { return time.Now().UTC() }
 	}
+
 	if opt.Dial != nil {
 		// wrapper for the deprecated Dial callback.
 		opt.Dialer = func(la, ra string) (net.Conn, error) {
@@ -645,9 +650,10 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 	}
 
 	// Wrap the base connection in a platform-specific connection type to
-	// allow for the reading of hardware timestamps.
-	conn, err := newConn(baseConn, &opt)
+	// allow for the reading of kernel timestamps.
+	conn, err := newConn(baseConn, &opt, useKernelTime)
 	if err != nil {
+		baseConn.Close()
 		return nil, err
 	}
 	defer conn.Close()

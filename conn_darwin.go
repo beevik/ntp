@@ -22,7 +22,11 @@ type connDarwin struct {
 	getTime func() time.Time
 }
 
-func newConn(base net.Conn, opt *QueryOptions) (conn, error) {
+func newConn(base net.Conn, opt *QueryOptions, useKernelTime bool) (conn, error) {
+	if !useKernelTime {
+		return newConnFallback(base, opt)
+	}
+
 	udpConn, ok := base.(*net.UDPConn)
 	if !ok {
 		return newConnFallback(base, opt)
@@ -62,7 +66,7 @@ func (c *connDarwin) Close() error {
 func (c *connDarwin) Read() (b []byte, recvTime time.Time, err error) {
 	n, oobn, _, _, err := c.udpConn.ReadMsgUDP(c.msgBuf, c.oobBuf)
 	if err != nil {
-		return nil, c.getTime(), err
+		return nil, time.Time{}, err
 	}
 
 	// Get imprecise time in case we can't get a kernel timestamp.
