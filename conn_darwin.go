@@ -15,11 +15,11 @@ import (
 )
 
 type connDarwin struct {
-	base    net.Conn
-	udpConn *net.UDPConn
-	msgBuf  []byte
-	oobBuf  []byte
-	getTime func() time.Time
+	base          net.Conn
+	udpConn       *net.UDPConn
+	msgBuf        []byte
+	oobBuf        []byte
+	getSystemTime func() time.Time
 }
 
 func newConn(base net.Conn, opt *QueryOptions, useKernelTime bool) (conn, error) {
@@ -50,11 +50,11 @@ func newConn(base net.Conn, opt *QueryOptions, useKernelTime bool) (conn, error)
 	}
 
 	conn := &connDarwin{
-		base:    base,
-		udpConn: udpConn,
-		msgBuf:  make([]byte, msgBufSize),
-		oobBuf:  make([]byte, oobBufSize),
-		getTime: opt.GetSystemTime,
+		base:          base,
+		udpConn:       udpConn,
+		msgBuf:        make([]byte, msgBufSize),
+		oobBuf:        make([]byte, oobBufSize),
+		getSystemTime: opt.GetSystemTime,
 	}
 	return conn, nil
 }
@@ -70,7 +70,7 @@ func (c *connDarwin) Read() (b []byte, recvTime time.Time, err error) {
 	}
 
 	// Get imprecise time in case we can't get a kernel timestamp.
-	recvTime = c.getTime()
+	recvTime = c.getSystemTime()
 
 	// Parse control messages to extract timestamp.
 	if oobn > 0 {

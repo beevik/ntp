@@ -90,7 +90,7 @@ include:
 * `Extensions`: Extensions may be added to modify NTP queries before they are
 	transmitted and to process NTP responses after they arrive.
 * `GetSystemTime`: A custom function to obtain the current system time, used
-  to override the default `time.Now` function.
+  to override the platform's default system clock API call.
 * `Dialer`: A custom network connection "dialer" function used to override the
   default UDP dialer function.
 

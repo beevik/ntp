@@ -49,9 +49,9 @@ func applyOptions(c net.Conn, opt *QueryOptions) error {
 // connFallback is a fallback implementation of the conn interface, used
 // when only software-based timestamps are available.
 type connFallback struct {
-	base    net.Conn
-	msgBuf  []byte
-	getTime func() time.Time
+	base          net.Conn
+	msgBuf        []byte
+	getSystemTime func() time.Time
 }
 
 func newConnFallback(base net.Conn, opt *QueryOptions) (conn, error) {
@@ -60,9 +60,9 @@ func newConnFallback(base net.Conn, opt *QueryOptions) (conn, error) {
 	}
 
 	conn := &connFallback{
-		base:    base,
-		msgBuf:  make([]byte, msgBufSize),
-		getTime: opt.GetSystemTime,
+		base:          base,
+		msgBuf:        make([]byte, msgBufSize),
+		getSystemTime: opt.GetSystemTime,
 	}
 	return conn, nil
 }
@@ -76,7 +76,7 @@ func (c *connFallback) Read() (b []byte, recvTime time.Time, err error) {
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	return c.msgBuf[:n], c.getTime(), nil
+	return c.msgBuf[:n], c.getSystemTime(), nil
 }
 
 func (c *connFallback) Write(b []byte) (n int, err error) {

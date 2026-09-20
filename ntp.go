@@ -168,8 +168,9 @@ type QueryOptions struct {
 
 	// GetSystemTime is a callback used to override the default method of
 	// obtaining the local system time during time synchronization. If not
-	// specified, time.Now is used. Specifying this callback disables the use
-	// of kernel timestamps on platforms that would otherwise support them.
+	// specified, the most precise system clock offered by the platform is
+	// used. Specifying this callback disables the use of kernel timestamps
+	// on platforms that would otherwise support them.
 	GetSystemTime func() time.Time
 
 	// RequestReferenceID is a struct used to request reference ID bloom
@@ -459,7 +460,7 @@ func (r *Response) IsKissOfDeath() bool {
 // Log outputs a human-readable representation of the NTP response to the
 // provided io.Writer. Meant for debugging purposes.
 func (r *Response) Log(w io.Writer) {
-	now := time.Now().Local()
+	now := getSystemTime().Local()
 	fmt.Fprintf(w, "    Version: %d\n", r.Version)
 	fmt.Fprintf(w, "ClockOffset: %s\n", r.ClockOffset)
 	fmt.Fprintf(w, "        RTT: %s\n", r.RTT)
@@ -623,7 +624,7 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 
 	useKernelTime := opt.GetSystemTime == nil
 	if opt.GetSystemTime == nil {
-		opt.GetSystemTime = func() time.Time { return time.Now().UTC() }
+		opt.GetSystemTime = getSystemTime
 	}
 
 	if opt.Dial != nil {
@@ -679,16 +680,16 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 func Time(address string) (time.Time, error) {
 	r, err := Query(address)
 	if err != nil {
-		return time.Now(), err
+		return getSystemTime().Local(), err
 	}
 
 	err = r.Validate()
 	if err != nil {
-		return time.Now(), err
+		return getSystemTime().Local(), err
 	}
 
 	// Use the response's clock offset to calculate an accurate time.
-	return time.Now().Add(r.ClockOffset), nil
+	return getSystemTime().Local().Add(r.ClockOffset), nil
 }
 
 // dialWrapper is used to wrap the deprecated Dial callback in QueryOptions.
