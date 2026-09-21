@@ -595,7 +595,7 @@ func (r *Response) Validate() error {
 	return nil
 }
 
-// Query requests time data from a remote NTP server. The response contains
+// Query requests time data from a remote NTPv4 server. The response contains
 // information from which a more accurate local time can be inferred.
 //
 // The server address is of the form "host", "host:port", "host%zone:port",
@@ -672,8 +672,8 @@ func QueryWithOptions(remoteAddress string, opt QueryOptions) (*Response, error)
 }
 
 // Time returns the current, corrected local time using information returned
-// from the remote NTP server. On error, Time returns the uncorrected local
-// system time. This function can only be used with NTPv3 and NTPv4 servers.
+// from the remote NTPv4 server. On error, Time returns the uncorrected local
+// system time.
 //
 // The server address is of the form "host", "host:port", "host%zone:port",
 // "[host]:port" or "[host%zone]:port". The host may contain an IPv4, IPv6 or

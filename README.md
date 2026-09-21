@@ -94,6 +94,56 @@ include:
 * `Dialer`: A custom network connection "dialer" function used to override the
   default UDP dialer function.
 
+
+## Logging responses
+
+To log an NTP query's response, use the response's `Log` function:
+```go
+options := ntp.QueryOptions{ Version: 4, RequestSupportedVersions: true }
+response, err := ntp.QueryWithOptions("0.beevik-ntp.pool.ntp.org", options)
+if err != nil {
+    response.Log(os.Stdout)
+}
+```
+
+Output:
+```
+    Version: 4
+ClockOffset: -374.811087ms
+        RTT: 67.989037ms
+ SystemTime: Sun Sep 20 2026  18:36:41.96194660 (PDT)
+  ~TrueTime: Sun Sep 20 2026  18:36:41.58713551 (PDT)
+ ClientXmit: Mon Sep 21 2026  01:36:41.89013280 (UTC)
+ ServerRecv: Mon Sep 21 2026  01:36:41.54931623 (UTC)
+ ServerXmit: Mon Sep 21 2026  01:36:41.54937899 (UTC)
+ ClientRecv: Mon Sep 21 2026  01:36:41.95818460 (UTC)
+    Stratum: 3
+       Leap: No Warning
+      Flags: [Synchronized] (0x00000001)
+        Era: 0
+  Timescale: UTC
+       Poll: 1s
+  Precision: 29ns
+  RootDelay: 20.111084ms
+   RootDisp: 366.211µs
+   RootDist: 44.416271ms
+  Supported: [4]
+   MinError: 340.816569ms
+    RefTime: Mon Sep 21 2026  01:35:21.44779491 (UTC)
+      RefID: 158.51.99.19 (0x9e336313)
+   KissCode: <empty>
+```
+
+## Experimental NTPv5 support
+
+This package supports the [current draft of NTP version 5
+(NTPv5)](https://datatracker.ietf.org/doc/html/draft-ietf-ntp-ntpv5). The
+implementation provided by this package is considered experimental and is
+subject to change as the draft specification evolves. For this reason, this
+package's NTPv5 features are not recommended for use in production
+environments.
+
+
 ## Using the NTP pool
 
 The NTP pool is a shared resource provided by the [NTP Pool
