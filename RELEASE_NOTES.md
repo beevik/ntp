@@ -1,3 +1,31 @@
+Release v1.6.0
+==============
+
+**Changes**
+
+* Added support for the current NTP version 5 draft specification
+  ([draft-ietf-ntp-ntpv5-09](https://datatracker.ietf.org/doc/html/draft-ietf-ntp-ntpv5-09)).
+  This feature is experimental, so its API may change in future minor
+  releases. It should not be used in production environments.
+* Added kernel timestamp support to provide more accurate time measurements on
+  platforms that support them. Currently supported for Linux and MacOS.
+* Started using a more accurate system clock on the Windows platform for local
+  system time measurements, improving precision from hundreds of microseconds
+  to hundreds of nanoseconds.
+* Added the `Log` function to `Response`.
+* Added the `Timestamps` field to `Response`.
+* Added the `RequestSupportedVersions` field to `QueryOptions`.
+* Updated package dependencies. Minimum go version is now 1.26.
+
+**Fixes**
+
+* Fixed a bug in the calculation of the response's `MaxError` field.
+
+**Deprecated**
+
+* Deprecated the `Time` field in the `Response` struct. Use
+  `Timestamps.ServerXmit` instead.
+
 Release v1.5.0
 ==============
 
