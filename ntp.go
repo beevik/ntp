@@ -919,12 +919,21 @@ func toTimestamp(t time.Time) timestamp {
 }
 
 // toInterval converts an NTP poll interval exponent into a time.Duration.
+// The exponent is an int8 from the packet. Negating -128 overflows, and the
+// following shift panics. A shift of 34 or more does not fit in a duration
+// and wraps negative. Those exponents stay at the nearest duration that fits.
 func toInterval(t int8) time.Duration {
+	const maxShift = 33 // time.Second<<34 overflows int64
+	shift := int(t)
 	switch {
-	case t > 0:
-		return time.Duration(int64(time.Second) << int(t))
-	case t < 0:
-		return time.Duration(int64(time.Second) >> int(-t))
+	case shift > maxShift:
+		return time.Second << maxShift
+	case shift > 0:
+		return time.Second << shift
+	case shift < -29:
+		return 0
+	case shift < 0:
+		return time.Second >> -shift
 	default:
 		return time.Second
 	}

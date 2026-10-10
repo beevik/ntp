@@ -297,3 +297,14 @@ func TestOfflineKissCode(t *testing.T) {
 		assert.Equal(t, kissCode(c.id), c.str)
 	}
 }
+
+func TestToIntervalBounds(t *testing.T) {
+	assert.Equal(t, time.Second, toInterval(0))
+	assert.Equal(t, 16*time.Second, toInterval(4))
+	assert.Equal(t, 500*time.Millisecond, toInterval(-1))
+	assert.Equal(t, time.Nanosecond, toInterval(-29))
+	assert.Equal(t, time.Duration(0), toInterval(-30))
+	assert.Equal(t, time.Duration(0), toInterval(-128))
+	assert.Equal(t, time.Second<<33, toInterval(34))
+	assert.Equal(t, time.Second<<33, toInterval(127))
+}
