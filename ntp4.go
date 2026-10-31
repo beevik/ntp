@@ -285,7 +285,7 @@ func parseV4Response(data []byte) (*messageV4, error) {
 	if m.TransmitTime == timestamp(0) {
 		return nil, ErrInvalidTransmitTime
 	}
-	if m.ReceiveTime > m.TransmitTime {
+	if m.ReceiveTime.TimeV4().After(m.TransmitTime.TimeV4()) {
 		return nil, ErrServerTickedBackwards
 	}
 

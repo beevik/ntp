@@ -6,8 +6,10 @@ package ntp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -446,4 +448,57 @@ func TestOfflineV4Validate(t *testing.T) {
 	r2 = r
 	r2.Time = r2.ReferenceTime.Add(time.Duration(-1) * time.Second)
 	assertInvalid(t, &r2)
+}
+
+func TestOfflineV4ResponseAcrossRollover(t *testing.T) {
+	rollover := time.Date(2036, time.February, 7, 6, 28, 16, 0, time.UTC)
+	cases := []struct {
+		name              string
+		receive, transmit time.Time
+		wantErr           error
+	}{
+		{"before rollover", rollover.Add(-2 * time.Second), rollover.Add(-time.Second), nil},
+		{"across rollover", rollover.Add(-time.Millisecond), rollover.Add(time.Millisecond), nil},
+		{"after rollover", rollover.Add(time.Second), rollover.Add(2 * time.Second), nil},
+		{"backwards before rollover", rollover.Add(-time.Second), rollover.Add(-2 * time.Second), ErrServerTickedBackwards},
+		{"backwards across rollover", rollover.Add(time.Millisecond), rollover.Add(-time.Millisecond), ErrServerTickedBackwards},
+		{"backwards after rollover", rollover.Add(2 * time.Second), rollover.Add(time.Second), ErrServerTickedBackwards},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+			done := make(chan error, 1)
+			go func() {
+				request := make([]byte, msgSize)
+				if _, err := io.ReadFull(server, request); err != nil {
+					done <- err
+					return
+				}
+				response := make([]byte, msgSize)
+				response[0] = request[0]&0x38 | byte(serverMode)
+				response[1] = 2
+				copy(response[24:32], request[40:48])
+				binary.BigEndian.PutUint64(response[32:40], uint64(toTimestamp(tc.receive)))
+				binary.BigEndian.PutUint64(response[40:48], uint64(toTimestamp(tc.transmit)))
+				_, err := server.Write(response)
+				done <- err
+			}()
+			r, err := QueryWithOptions("test.invalid", QueryOptions{
+				Dialer:        func(string, string) (net.Conn, error) { return client, nil },
+				GetSystemTime: func() time.Time { return rollover },
+			})
+			if serverErr := <-done; serverErr != nil {
+				t.Fatal(serverErr)
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("QueryWithOptions error = %v, want %v", err, tc.wantErr)
+			}
+			if err == nil {
+				assert.Equal(t, tc.receive, r.Timestamps.ServerRecv)
+				assert.Equal(t, tc.transmit, r.Timestamps.ServerXmit)
+			}
+		})
+	}
 }
