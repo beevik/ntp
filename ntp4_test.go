@@ -6,8 +6,10 @@ package ntp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -446,4 +448,50 @@ func TestOfflineV4Validate(t *testing.T) {
 	r2 = r
 	r2.Time = r2.ReferenceTime.Add(time.Duration(-1) * time.Second)
 	assertInvalid(t, &r2)
+}
+
+func TestOfflineV4SynchronizationFlag(t *testing.T) {
+	for _, stratum := range []uint8{0, 1, 2, 15, 16} {
+		t.Run(fmt.Sprint(stratum), func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+			done := make(chan error, 1)
+			go func() {
+				request := make([]byte, msgSize)
+				if _, err := io.ReadFull(server, request); err != nil {
+					done <- err
+					return
+				}
+				response := make([]byte, msgSize)
+				response[0] = request[0]&0x38 | byte(serverMode)
+				response[1] = stratum
+				copy(response[24:32], request[40:48])
+				serverTime := uint64(toTimestamp(time.Now()))
+				binary.BigEndian.PutUint64(response[16:24], serverTime)
+				binary.BigEndian.PutUint64(response[32:40], serverTime)
+				binary.BigEndian.PutUint64(response[40:48], serverTime)
+				_, err := server.Write(response)
+				done <- err
+			}()
+			r, err := QueryWithOptions("test.invalid", QueryOptions{
+				Dialer: func(string, string) (net.Conn, error) { return client, nil },
+			})
+			if serverErr := <-done; serverErr != nil {
+				t.Fatal(serverErr)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := stratum >= 1 && stratum < maxStratum
+			if want {
+				if err := r.Validate(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := r.Flags&FlagSynchronized != 0; got != want {
+				t.Fatalf("stratum %d: synchronized = %t, want %t", stratum, got, want)
+			}
+		})
+	}
 }

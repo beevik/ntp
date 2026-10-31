@@ -215,7 +215,7 @@ func queryV4(conn conn, opt *QueryOptions) (*Response, error) {
 	}
 
 	// Responses with valid stratum values are considered synchronized.
-	if r.Stratum > 1 && r.Stratum < maxStratum {
+	if r.Stratum > 0 && r.Stratum < maxStratum {
 		r.Flags |= FlagSynchronized
 	}
 
